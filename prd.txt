@@ -1,0 +1,361 @@
+Product Requirements Document (PRD) 
+
+1. Overview 
+
+The objective of this product is to build a simple, mobile-first business accounting application for small and medium businesses (retailers, wholesalers, shopkeepers) to manage cash, stock, sales, expenses, staff, customers, suppliers, and banks in one place. 
+
+The app should be easy to use, Urdu + English supported, and inspired by successful solutions like DigiKhata, while covering the client’s specific requirements. 
+
+ 
+
+2. Target Users 
+
+Small shop owners (retail / wholesale) 
+
+Traders and distributors 
+
+Service providers 
+
+Businesses managing credit (udhaar) 
+
+Businesses using multiple devices 
+
+ 
+
+3. Goals & Success Metrics 
+
+Business Goals 
+
+Digitize daily business records 
+
+Reduce manual registers 
+
+Improve cash & stock visibility 
+
+Success Metrics 
+
+Daily active users (DAU) 
+
+Number of transactions recorded 
+
+Multi-device usage 
+
+User retention (30/60 days) 
+
+ 
+
+4. Core Modules & Features 
+
+ 
+
+4.1 Cash Management 💰 
+
+Features 
+
+Cash In 
+
+Record all incoming money (sales, recoveries, customer payments) 
+
+Date, amount, source, remarks 
+
+Cash Out 
+
+Record expenses, payments, withdrawals 
+
+Link to expense accounts 
+
+Cash Summary 
+
+Opening balance 
+
+Total cash in 
+
+Total cash out 
+
+Closing balance (daily/monthly) 
+
+ 
+
+4.2 Stock Management 📦 
+
+Features 
+
+Add Item / Product 
+
+Item name 
+
+SKU / barcode (optional) 
+
+Purchase price 
+
+Sale price 
+
+Opening stock 
+
+Unit (pcs, kg, liter) 
+
+Stock In Report 
+
+Purchases 
+
+Manual stock addition 
+
+Supplier-linked stock 
+
+Stock Out Report 
+
+Sales-based stock reduction 
+
+Manual stock adjustment 
+
+Wastage / damage 
+
+Low Stock Alert (Inspired by DigiKhata) 
+
+Notify when stock goes below minimum threshold 
+
+ 
+
+4.3 Billing / Invoicing 🧾 
+
+Features 
+
+Create New Bill / Invoice 
+
+Auto invoice number 
+
+Customer selection 
+
+Item-wise billing 
+
+Tax / discount support 
+
+Cash / credit sale 
+
+Bill History 
+
+Filter by Start Date | End Date 
+
+Search by customer / invoice number 
+
+Invoice Sharing (DigiKhata Inspired) 
+
+Share invoice via WhatsApp (share intent only) / PDF 
+
+ 
+
+4.4 Sales Management 🛒 
+
+Features 
+
+Daily sales entry 
+
+Cash vs credit sales separation 
+
+Sales reports 
+
+Daily 
+
+Weekly 
+
+Monthly 
+
+Profit estimation (Sale price – Purchase price) 
+
+ 
+
+4.5 Expense Management 💸 
+
+Features 
+
+Create Expense Accounts / Categories 
+
+Rent 
+
+Electricity 
+
+Salary 
+
+Transport 
+
+Miscellaneous 
+
+Expense entry with: 
+
+Date 
+
+Amount 
+
+Category 
+
+Payment mode (Cash/Bank) 
+
+Monthly expense summary 
+
+ 
+
+4.6 Staff Management 👨‍💼 
+
+Features 
+
+Add Staff 
+
+Name 
+
+Phone 
+
+Role 
+
+Staff salary tracking 
+
+Optional: Staff permissions (view-only, entry-only) 
+
+ 
+
+4.7 Customers, Suppliers & Banks 👥 
+
+Customers 
+
+Customer profile 
+
+Credit (udhaar) tracking 
+
+Payment history 
+
+Balance due 
+
+Reminder notifications (DigiKhata Inspired) 
+
+Suppliers 
+
+Supplier ledger 
+
+Purchase & payment history 
+
+Outstanding payables 
+
+Banks 
+
+Bank account creation 
+
+Bank transactions 
+
+Cash ↔ Bank transfers 
+
+ 
+
+4.8 Multi-Device Support 📱 
+
+Features 
+
+Add Device via QR Code / Scan Code 
+
+Sync data across devices 
+
+Device management 
+
+View active devices 
+
+Remove device 
+
+Default limit of 3 active devices per business (configurable)
+
+Device revocation takes effect immediately
+
+ 
+
+5. DigiKhata – Key Features to Include 
+
+Based on DigiKhata’s functionality, the following features should be incorporated: 
+
+Simple ledger-based UI 
+
+Customer & supplier credit reminders 
+
+Automatic balance calculation 
+
+WhatsApp sharing of invoices (share intent only) 
+
+Cloud backup & restore 
+
+PIN / biometric app lock 
+
+Multi-language support (Urdu / English) 
+
+Offline-first with sync when online 
+
+ 
+
+6. Reports & Analytics 📊 
+
+Cash flow report 
+
+Sales report 
+
+Expense report 
+
+Stock report 
+
+Profit & loss summary (basic) 
+
+ 
+
+7. Non-Functional Requirements 
+
+Mobile-first (Android priority) 
+
+Offline support 
+
+Secure authentication (OTP / PIN) 
+
+Fast performance on low-end devices 
+
+Cloud-based sync & backup
+
+OTP via SendPK (sendpk.com) transactional SMS gateway (OTP route)
+
+Transactional/short-code route required for OTP messages
+
+Backend hosting on Hostinger VPS 
+
+ 
+
+8. User Experience (UX) Guidelines 
+
+Simple dashboard 
+
+Large buttons & clear icons 
+
+Urdu-friendly labels 
+
+Minimal data entry steps 
+
+ 
+
+9. Future Enhancements (Phase 2) 
+
+GST / Tax reports 
+
+Barcode scanning 
+
+Accounting export (Excel/PDF) 
+
+Role-based access control 
+
+AI-based sales insights 
+
+ 
+
+10. Assumptions & Constraints 
+
+Users may not be tech-savvy 
+
+Internet connectivity may be inconsistent 
+
+App should work smoothly offline 
+
+ 
+
+11. Conclusion 
+
+This PRD defines a complete digital khata & business management solution, combining the client’s requirements with proven DigiKhata features, ensuring usability, scalability, and adoption by small businesses. 
