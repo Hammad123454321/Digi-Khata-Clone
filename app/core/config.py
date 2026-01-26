@@ -2,7 +2,7 @@
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Environment
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
 
     # Database
-    MONGODB_URL: str = Field(...)
+    MONGODB_URL: str = Field(...)  # Required, but can come from MONGODB_URI via validator
     MONGODB_DATABASE: str = Field(default="digikhata")
 
     # Redis
@@ -98,6 +99,24 @@ class Settings(BaseSettings):
     # Server
     SERVER_HOST: str = Field(default="0.0.0.0")
     SERVER_PORT: int = Field(default=8000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_mongodb_url(cls, data):
+        """Check for MONGODB_URL or MONGODB_URI environment variable."""
+        import os
+        # If data is a dict (from environment), check for both variable names
+        if isinstance(data, dict):
+            # Check for MONGODB_URI first (common alternative)
+            mongodb_uri = data.get("MONGODB_URI") or data.get("mongodb_uri") or os.getenv("MONGODB_URI") or os.getenv("mongodb_uri")
+            if mongodb_uri and not data.get("MONGODB_URL"):
+                data["MONGODB_URL"] = mongodb_uri
+            # If MONGODB_URL is still missing, check environment
+            if not data.get("MONGODB_URL"):
+                mongodb_url = os.getenv("MONGODB_URL") or os.getenv("mongodb_url")
+                if mongodb_url:
+                    data["MONGODB_URL"] = mongodb_url
+        return data
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
