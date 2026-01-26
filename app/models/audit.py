@@ -1,7 +1,7 @@
 """Audit log model."""
 from datetime import datetime, timezone
 from typing import Optional, Any
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -10,16 +10,16 @@ from app.models.base import BaseModel
 class AuditLog(BaseModel):
     """Audit log for critical actions."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    user_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
-    action: Indexed(str, index_type=Index.ASCENDING)  # e.g., "cash.edit", "stock.adjustment", "invoice.delete"
-    entity_type: Indexed(str, index_type=Index.ASCENDING)  # cash_transaction, item, invoice, etc.
-    entity_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
+    business_id: Indexed(PydanticObjectId, )
+    user_id: Optional[Indexed(PydanticObjectId, )] = None
+    action: Indexed(str, )  # e.g., "cash.edit", "stock.adjustment", "invoice.delete"
+    entity_type: Indexed(str, )  # cash_transaction, item, invoice, etc.
+    entity_id: Optional[Indexed(PydanticObjectId, )] = None
     old_values: Optional[dict[str, Any]] = None  # Previous state
     new_values: Optional[dict[str, Any]] = None  # New state
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    timestamp: Indexed(datetime, index_type=Index.ASCENDING)
+    timestamp: Indexed(datetime, )
 
     class Settings:
         name = "audit_logs"

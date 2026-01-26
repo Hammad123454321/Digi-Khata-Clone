@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -12,8 +12,8 @@ from app.core.security import encrypt_data, decrypt_data
 class Supplier(BaseModel):
     """Supplier model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    name: Indexed(str, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    name: Indexed(str, )
     phone: Optional[str] = Field(default=None)  # Encrypted phone
     email: Optional[str] = Field(default=None)  # Encrypted email
     address: Optional[str] = None
@@ -54,11 +54,11 @@ class Supplier(BaseModel):
 class SupplierTransaction(BaseModel):
     """Supplier transaction model (ledger-style for payable tracking)."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    supplier_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    transaction_type: Indexed(str, index_type=Index.ASCENDING)  # purchase, payment, adjustment
+    business_id: Indexed(PydanticObjectId, )
+    supplier_id: Indexed(PydanticObjectId, )
+    transaction_type: Indexed(str, )  # purchase, payment, adjustment
     amount: Decimal
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    date: Indexed(datetime, )
     reference_id: Optional[PydanticObjectId] = None  # Reference to purchase, payment, etc.
     reference_type: Optional[str] = None  # purchase, payment, manual, etc.
     remarks: Optional[str] = None
@@ -78,8 +78,8 @@ class SupplierTransaction(BaseModel):
 class SupplierBalance(BaseModel):
     """Supplier balance snapshot."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    supplier_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    supplier_id: Indexed(PydanticObjectId, )
     balance: Decimal = Field(default=Decimal("0.00"))  # Positive = payable
     last_transaction_date: Optional[datetime] = None
 

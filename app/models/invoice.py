@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import enum
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -19,11 +19,11 @@ class InvoiceType(str, enum.Enum):
 class Invoice(BaseModel):
     """Invoice model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    customer_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
-    invoice_number: Indexed(str, unique=True, index_type=Index.ASCENDING)
-    invoice_type: Indexed(InvoiceType, index_type=Index.ASCENDING)
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    customer_id: Optional[Indexed(PydanticObjectId, )] = None
+    invoice_number: Indexed(str, unique=True, )
+    invoice_type: Indexed(InvoiceType, )
+    date: Indexed(datetime, )
     subtotal: Decimal
     tax_amount: Decimal = Field(default=Decimal("0.00"))
     discount_amount: Decimal = Field(default=Decimal("0.00"))
@@ -48,8 +48,8 @@ class Invoice(BaseModel):
 class InvoiceItem(BaseModel):
     """Invoice item model."""
 
-    invoice_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    item_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
+    invoice_id: Indexed(PydanticObjectId, )
+    item_id: Optional[Indexed(PydanticObjectId, )] = None
     item_name: str  # Snapshot of item name
     quantity: Decimal
     unit_price: Decimal

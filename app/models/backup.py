@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -11,13 +11,13 @@ from app.models.base import BaseModel
 class Backup(BaseModel):
     """Backup snapshot model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    backup_type: Indexed(str, index_type=Index.ASCENDING)  # auto, manual
+    business_id: Indexed(PydanticObjectId, )
+    backup_type: Indexed(str, )  # auto, manual
     file_path: str  # S3 path or local path
     file_size: Optional[Decimal] = None  # Size in MB
-    status: Indexed(str, index_type=Index.ASCENDING)  # completed, failed, in_progress
+    status: Indexed(str, )  # completed, failed, in_progress
     error_message: Optional[str] = None
-    backup_date: Indexed(datetime, index_type=Index.ASCENDING)
+    backup_date: Indexed(datetime, )
 
     class Settings:
         name = "backups"

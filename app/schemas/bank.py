@@ -19,7 +19,7 @@ class BankAccountCreate(BaseModel):
 class BankAccountResponse(BaseModel):
     """Bank account response schema."""
 
-    id: int
+    id: str
     bank_name: str
     account_number: Optional[str]
     account_holder_name: Optional[str]
@@ -36,7 +36,7 @@ class BankAccountResponse(BaseModel):
 class BankTransactionCreate(BaseModel):
     """Bank transaction creation schema."""
 
-    bank_account_id: int
+    bank_account_id: str
     transaction_type: str = Field(..., pattern="^(deposit|withdrawal|transfer)$")
     amount: Decimal = Field(..., gt=0)
     date: datetime
@@ -50,6 +50,6 @@ class CashBankTransferCreate(BaseModel):
     transfer_type: str = Field(..., pattern="^(cash_to_bank|bank_to_cash)$")
     amount: Decimal = Field(..., gt=0)
     date: datetime
-    bank_account_id: Optional[int] = None
+    bank_account_id: Optional[str] = None
     remarks: Optional[str] = None
 

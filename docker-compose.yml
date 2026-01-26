@@ -8,25 +8,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MONGODB_URL=mongodb://mongodb:27017/
-      - MONGODB_DATABASE=${MONGODB_DATABASE:-DIGI-KHATA}
       - REDIS_URL=redis://redis:6379/0
     env_file:
       - .env
     depends_on:
-      - mongodb
       - redis
-    networks:
-      - digikhata-network
-
-  mongodb:
-    image: mongo:7.0
-    container_name: digikhata-mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
     networks:
       - digikhata-network
 
@@ -42,10 +28,8 @@ services:
       - digikhata-network
 
 volumes:
-  mongodb_data:
   redis_data:
 
 networks:
   digikhata-network:
     driver: bridge
-

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import enum
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -23,15 +23,15 @@ class ItemUnit(str, enum.Enum):
 class Item(BaseModel):
     """Item/Product model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    name: Indexed(str, index_type=Index.ASCENDING)
-    sku: Optional[Indexed(str, index_type=Index.ASCENDING)] = None
-    barcode: Optional[Indexed(str, index_type=Index.ASCENDING)] = None
+    business_id: Indexed(PydanticObjectId, )
+    name: Indexed(str, )
+    sku: Optional[Indexed(str, )] = None
+    barcode: Optional[Indexed(str, )] = None
     purchase_price: Decimal
     sale_price: Decimal
     unit: ItemUnit = Field(default=ItemUnit.PIECE)
     opening_stock: Decimal = Field(default=Decimal("0.000"))
-    current_stock: Indexed(Decimal, index_type=Index.ASCENDING)
+    current_stock: Indexed(Decimal, )
     min_stock_threshold: Optional[Decimal] = None  # For low stock alerts
     is_active: bool = Field(default=True)
     description: Optional[str] = None
@@ -58,12 +58,12 @@ class InventoryTransactionType(str, enum.Enum):
 class InventoryTransaction(BaseModel):
     """Inventory transaction model (ledger-style)."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    item_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    transaction_type: Indexed(InventoryTransactionType, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    item_id: Indexed(PydanticObjectId, )
+    transaction_type: Indexed(InventoryTransactionType, )
     quantity: Decimal
     unit_price: Optional[Decimal] = None  # Purchase price for stock_in
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    date: Indexed(datetime, )
     reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, purchase, etc.
     reference_type: Optional[str] = None  # invoice, purchase, manual, etc.
     remarks: Optional[str] = None
@@ -83,8 +83,8 @@ class InventoryTransaction(BaseModel):
 class LowStockAlert(BaseModel):
     """Low stock alert model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    item_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    item_id: Indexed(PydanticObjectId, )
     current_stock: Decimal
     threshold: Decimal
     is_resolved: bool = Field(default=False)

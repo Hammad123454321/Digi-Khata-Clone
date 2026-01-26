@@ -27,7 +27,7 @@ class BusinessUpdate(BaseModel):
 class BusinessResponse(BaseModel):
     """Business response schema."""
 
-    id: int
+    id: str
     name: str
     phone: str
     email: Optional[str]

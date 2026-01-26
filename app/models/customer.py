@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -12,8 +12,8 @@ from app.core.security import encrypt_data, decrypt_data
 class Customer(BaseModel):
     """Customer model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    name: Indexed(str, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    name: Indexed(str, )
     phone: Optional[str] = Field(default=None)  # Encrypted phone
     email: Optional[str] = Field(default=None)  # Encrypted email
     address: Optional[str] = None
@@ -54,11 +54,11 @@ class Customer(BaseModel):
 class CustomerTransaction(BaseModel):
     """Customer transaction model (ledger-style for credit tracking)."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    customer_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    transaction_type: Indexed(str, index_type=Index.ASCENDING)  # credit, payment, adjustment
+    business_id: Indexed(PydanticObjectId, )
+    customer_id: Indexed(PydanticObjectId, )
+    transaction_type: Indexed(str, )  # credit, payment, adjustment
     amount: Decimal
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    date: Indexed(datetime, )
     reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, payment, etc.
     reference_type: Optional[str] = None  # invoice, payment, manual, etc.
     remarks: Optional[str] = None
@@ -78,8 +78,8 @@ class CustomerTransaction(BaseModel):
 class CustomerBalance(BaseModel):
     """Customer balance snapshot."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    customer_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    customer_id: Indexed(PydanticObjectId, )
     balance: Decimal = Field(default=Decimal("0.00"))
     last_transaction_date: Optional[datetime] = None
 

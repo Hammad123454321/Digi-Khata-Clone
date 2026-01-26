@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 import enum
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -20,7 +20,7 @@ class UserRoleEnum(str, enum.Enum):
 class User(BaseModel):
     """User model."""
 
-    phone: Indexed(str, unique=True, index_type=Index.ASCENDING)  # Keep unencrypted for OTP/auth lookups
+    phone: Indexed(str, unique=True)  # Keep unencrypted for OTP/auth lookups
     name: Optional[str] = None
     email: Optional[str] = Field(default=None)  # Encrypted email
     is_active: bool = Field(default=True)
@@ -52,8 +52,8 @@ class User(BaseModel):
 class UserMembership(BaseModel):
     """User membership in a business (multi-tenant)."""
 
-    user_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    user_id: Indexed(PydanticObjectId, )
+    business_id: Indexed(PydanticObjectId, )
     role: UserRoleEnum = Field(default=UserRoleEnum.STAFF)
     is_active: bool = Field(default=True)
 

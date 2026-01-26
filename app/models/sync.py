@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional, Any
 import enum
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -19,13 +19,13 @@ class SyncAction(str, enum.Enum):
 class SyncChangeLog(BaseModel):
     """Change log for tracking entity modifications for sync."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    device_id: Optional[Indexed(str, index_type=Index.ASCENDING)] = None  # Device that made the change (null for server changes)
-    entity_type: Indexed(str, index_type=Index.ASCENDING)  # cash_transaction, item, invoice, customer, etc.
-    entity_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    action: Indexed(SyncAction, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    device_id: Optional[Indexed(str, )] = None  # Device that made the change (null for server changes)
+    entity_type: Indexed(str, )  # cash_transaction, item, invoice, customer, etc.
+    entity_id: Indexed(PydanticObjectId, )
+    action: Indexed(SyncAction, )
     data: Optional[dict[str, Any]] = None  # Snapshot of entity data at time of change
-    sync_timestamp: Indexed(datetime, index_type=Index.ASCENDING)  # When change occurred
+    sync_timestamp: Indexed(datetime, )  # When change occurred
     synced_devices: Optional[list[str]] = None  # List of device_ids that have synced this change
 
     class Settings:

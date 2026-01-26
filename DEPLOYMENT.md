@@ -21,7 +21,19 @@ dig qazitraders.com
 nslookup qazitraders.com
 ```
 
-## Step 1: Initial VPS Setup
+## Step 1: Configure MongoDB Atlas
+
+Since you're using MongoDB Atlas (cloud), configure network access:
+
+1. Go to [MongoDB Atlas Dashboard](https://cloud.mongodb.com/)
+2. Navigate to **Network Access**
+3. Click **Add IP Address**
+4. Add your VPS IP address (or use `0.0.0.0/0` temporarily for testing - **not recommended for production**)
+5. Save the changes
+
+**Important**: For production, whitelist only your VPS IP address for better security.
+
+## Step 2: Initial VPS Setup
 
 ### Update system
 ```bash
@@ -52,7 +64,17 @@ sudo apt install git -y
 sudo apt install nginx -y
 ```
 
-## Step 2: Clone Repository
+### Configure MongoDB Atlas Network Access
+
+Since you're using MongoDB Atlas (cloud), you need to whitelist your VPS IP:
+
+1. Go to MongoDB Atlas Dashboard
+2. Navigate to **Network Access**
+3. Click **Add IP Address**
+4. Add your VPS IP address (or use `0.0.0.0/0` for all IPs - less secure)
+5. Save the changes
+
+## Step 3: Clone Repository
 
 ```bash
 # Create app directory
@@ -67,7 +89,7 @@ git clone <your-repo-url> .
 git pull
 ```
 
-## Step 3: Configure Environment
+## Step 4: Configure Environment
 
 ```bash
 cd /var/www/digikhata
@@ -87,8 +109,8 @@ DEBUG=False
 APP_NAME=DigiKhata Backend
 SECRET_KEY=your-secret-key-min-32-chars-change-this-in-production
 
-# Database
-MONGODB_URL=mongodb://mongodb:27017/
+# Database (MongoDB Atlas Cloud)
+MONGODB_URL=mongodb+srv://hammad:Mlm098)(*@chatbot.s5n6iw2.mongodb.net/?retryWrites=true&w=majority&appName=Test-DB
 MONGODB_DATABASE=DIGI-KHATA
 
 # Redis
@@ -121,7 +143,7 @@ CORS_ORIGINS=["https://qazitraders.com","https://www.qazitraders.com"]
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-## Step 4: Configure Nginx
+## Step 5: Configure Nginx
 
 ```bash
 # Copy nginx configuration
@@ -154,7 +176,7 @@ This will:
 
 **Note**: Make sure DNS is properly configured before running Certbot, otherwise it will fail.
 
-## Step 5: Build and Start Services
+## Step 6: Build and Start Services
 
 ```bash
 cd /var/www/digikhata
@@ -173,7 +195,7 @@ docker compose logs -f backend
 docker compose ps
 ```
 
-## Step 6: Configure GitHub Actions
+## Step 7: Configure GitHub Actions
 
 1. Go to your GitHub repository
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
@@ -186,7 +208,7 @@ docker compose ps
 
 **Note**: After pushing to `main` or `master` branch, the workflow will automatically deploy.
 
-## Step 7: Verify Deployment
+## Step 8: Verify Deployment
 
 ```bash
 # Check if containers are running
@@ -234,14 +256,27 @@ docker compose build
 docker compose up -d
 ```
 
-### Backup MongoDB
+### Backup MongoDB (MongoDB Atlas)
+Since you're using MongoDB Atlas, you have two options:
+
+**Option 1: Use MongoDB Atlas built-in backups** (Recommended)
+- Go to MongoDB Atlas Dashboard → Clusters → Backup
+- Configure automated backups (available in M10+ clusters)
+
+**Option 2: Manual backup using mongodump**
 ```bash
-docker compose exec mongodb mongodump --out /data/backup
+# Install MongoDB Database Tools on your local machine or VPS
+# Ubuntu/Debian:
+wget https://fastdl.mongodb.org/tools/db/mongodb-database-tools-debian11-x86_64-100.9.4.deb
+sudo dpkg -i mongodb-database-tools-debian11-x86_64-100.9.4.deb
+
+# Then backup from Atlas
+mongodump --uri="mongodb+srv://hammad:Mlm098)(*@chatbot.s5n6iw2.mongodb.net/?retryWrites=true&w=majority&appName=Test-DB" --out=./backup
 ```
 
-### Restore MongoDB
+### Restore MongoDB (MongoDB Atlas)
 ```bash
-docker compose exec mongodb mongorestore /data/backup
+mongorestore --uri="mongodb+srv://hammad:Mlm098)(*@chatbot.s5n6iw2.mongodb.net/?retryWrites=true&w=majority&appName=Test-DB" ./backup
 ```
 
 ## Troubleshooting
@@ -257,12 +292,21 @@ docker compose exec backend env | grep MONGODB
 
 ### MongoDB connection issues
 ```bash
-# Check MongoDB logs
-docker compose logs mongodb
+# Test MongoDB connection from backend container
+docker compose exec backend python3 -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; client = AsyncIOMotorClient('mongodb+srv://hammad:Mlm098)(*@chatbot.s5n6iw2.mongodb.net/?retryWrites=true&w=majority&appName=Test-DB'); asyncio.run(client.admin.command('ping'))"
 
-# Test MongoDB connection
-docker compose exec mongodb mongosh
+# Check MongoDB URL and environment variables
+docker compose exec backend env | grep MONGODB
+
+# Check backend logs for MongoDB connection errors
+docker compose logs backend | grep -i mongo
 ```
+
+**Note**: Since you're using MongoDB Atlas (cloud), ensure:
+- Your VPS IP is whitelisted in MongoDB Atlas Network Access (go to Atlas Dashboard → Network Access)
+- MongoDB credentials in `.env` file are correct
+- Database name (`MONGODB_DATABASE`) is set to `DIGI-KHATA` or matches your Atlas database
+- Connection string format is correct (mongodb+srv://...)
 
 ### Nginx not proxying
 ```bash

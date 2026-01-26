@@ -13,20 +13,20 @@ class CashTransactionCreate(BaseModel):
     date: datetime
     source: Optional[str] = Field(None, max_length=255)
     remarks: Optional[str] = None
-    reference_id: Optional[int] = None
+    reference_id: Optional[str] = None
     reference_type: Optional[str] = Field(None, max_length=50)
 
 
 class CashTransactionResponse(BaseModel):
     """Cash transaction response schema."""
 
-    id: int
+    id: str
     transaction_type: str
     amount: Decimal
     date: datetime
     source: Optional[str]
     remarks: Optional[str]
-    reference_id: Optional[int]
+    reference_id: Optional[str]
     reference_type: Optional[str]
     created_at: datetime
 

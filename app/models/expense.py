@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import enum
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -19,8 +19,8 @@ class PaymentMode(str, enum.Enum):
 class ExpenseCategory(BaseModel):
     """Expense category model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    name: Indexed(str, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    name: Indexed(str, )
     description: Optional[str] = None
     is_active: bool = Field(default=True)
 
@@ -37,11 +37,11 @@ class ExpenseCategory(BaseModel):
 class Expense(BaseModel):
     """Expense model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    category_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
+    business_id: Indexed(PydanticObjectId, )
+    category_id: Optional[Indexed(PydanticObjectId, )] = None
     amount: Decimal
-    date: Indexed(datetime, index_type=Index.ASCENDING)
-    payment_mode: Indexed(PaymentMode, index_type=Index.ASCENDING)
+    date: Indexed(datetime, )
+    payment_mode: Indexed(PaymentMode, )
     description: Optional[str] = None
     reference_id: Optional[PydanticObjectId] = None  # Reference to bank transaction, etc.
     reference_type: Optional[str] = None

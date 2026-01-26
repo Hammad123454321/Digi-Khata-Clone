@@ -16,7 +16,7 @@ class DevicePairRequest(BaseModel):
 class DeviceResponse(BaseModel):
     """Device response schema."""
 
-    id: int
+    id: str
     device_id: str
     device_name: Optional[str]
     device_type: Optional[str]

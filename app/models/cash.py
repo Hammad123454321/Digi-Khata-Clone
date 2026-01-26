@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import enum
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -19,10 +19,10 @@ class CashTransactionType(str, enum.Enum):
 class CashTransaction(BaseModel):
     """Cash transaction model (ledger-style)."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    transaction_type: Indexed(CashTransactionType, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    transaction_type: Indexed(CashTransactionType, )
     amount: Decimal
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    date: Indexed(datetime, )
     source: Optional[str] = None  # e.g., "sales", "customer_payment", "recovery"
     remarks: Optional[str] = None
     reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, expense, etc.
@@ -42,8 +42,8 @@ class CashTransaction(BaseModel):
 class CashBalance(BaseModel):
     """Daily cash balance snapshot."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    date: Indexed(datetime, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    date: Indexed(datetime, )
     opening_balance: Decimal = Field(default=Decimal("0.00"))
     total_cash_in: Decimal = Field(default=Decimal("0.00"))
     total_cash_out: Decimal = Field(default=Decimal("0.00"))

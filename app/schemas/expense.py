@@ -15,7 +15,7 @@ class ExpenseCategoryCreate(BaseModel):
 class ExpenseCategoryResponse(BaseModel):
     """Expense category response schema."""
 
-    id: int
+    id: str
     name: str
     description: Optional[str]
     is_active: bool
@@ -27,7 +27,7 @@ class ExpenseCategoryResponse(BaseModel):
 class ExpenseCreate(BaseModel):
     """Expense creation schema."""
 
-    category_id: Optional[int] = None
+    category_id: Optional[str] = None
     amount: Decimal = Field(..., gt=0)
     date: datetime
     payment_mode: str = Field(..., pattern="^(cash|bank)$")
@@ -37,8 +37,8 @@ class ExpenseCreate(BaseModel):
 class ExpenseResponse(BaseModel):
     """Expense response schema."""
 
-    id: int
-    category_id: Optional[int]
+    id: str
+    category_id: Optional[str]
     amount: Decimal
     date: datetime
     payment_mode: str

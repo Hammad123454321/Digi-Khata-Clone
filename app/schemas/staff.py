@@ -18,7 +18,7 @@ class StaffCreate(BaseModel):
 class StaffResponse(BaseModel):
     """Staff response schema."""
 
-    id: int
+    id: str
     name: str
     phone: Optional[str]
     email: Optional[str]
@@ -33,7 +33,7 @@ class StaffResponse(BaseModel):
 class StaffSalaryCreate(BaseModel):
     """Staff salary creation schema."""
 
-    staff_id: int
+    staff_id: str
     amount: Decimal = Field(..., gt=0)
     date: datetime
     payment_mode: str = Field(..., pattern="^(cash|bank)$")

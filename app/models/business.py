@@ -1,6 +1,6 @@
 """Business model."""
 from typing import Optional
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed
 
 from app.models.base import BaseModel
@@ -10,8 +10,8 @@ from app.core.security import encrypt_data, decrypt_data
 class Business(BaseModel):
     """Business/tenant model."""
 
-    name: Indexed(str, index_type=Index.ASCENDING)
-    phone: Indexed(str, unique=True, index_type=Index.ASCENDING)  # Keep unencrypted for lookups
+    name: Indexed(str)
+    phone: Indexed(str, unique=True)  # Keep unencrypted for lookups
     email: Optional[str] = Field(default=None)  # Encrypted email
     address: Optional[str] = None
     is_active: bool = Field(default=True)

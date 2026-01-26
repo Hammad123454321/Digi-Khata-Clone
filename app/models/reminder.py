@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -11,11 +11,11 @@ from app.models.base import BaseModel
 class Reminder(BaseModel):
     """Reminder model for credit payments."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    entity_type: Indexed(str, index_type=Index.ASCENDING)  # customer, supplier
-    entity_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)  # customer_id or supplier_id
+    business_id: Indexed(PydanticObjectId, )
+    entity_type: Indexed(str, )  # customer, supplier
+    entity_id: Indexed(PydanticObjectId, )  # customer_id or supplier_id
     amount: Decimal
-    due_date: Optional[Indexed(datetime, index_type=Index.ASCENDING)] = None
+    due_date: Optional[Indexed(datetime, )] = None
     message: Optional[str] = None
     is_sent: bool = Field(default=False)
     sent_at: Optional[datetime] = None

@@ -27,7 +27,7 @@ class CustomerUpdate(BaseModel):
 class CustomerResponse(BaseModel):
     """Customer response schema."""
 
-    id: int
+    id: str
     name: str
     phone: Optional[str]
     email: Optional[str]
@@ -44,18 +44,18 @@ class CustomerPaymentCreate(BaseModel):
 
     amount: Decimal = Field(..., gt=0, description="Payment amount must be positive")
     date: datetime
-    invoice_id: Optional[int] = Field(None, description="Optional invoice ID to link payment to specific invoice")
+    invoice_id: Optional[str] = Field(None, description="Optional invoice ID to link payment to specific invoice")
     remarks: Optional[str] = None
 
 
 class CustomerTransactionResponse(BaseModel):
     """Customer transaction response schema."""
 
-    id: int
+    id: str
     transaction_type: str
     amount: Decimal
     date: datetime
-    reference_id: Optional[int]
+    reference_id: Optional[str]
     reference_type: Optional[str]
     remarks: Optional[str]
     created_at: datetime

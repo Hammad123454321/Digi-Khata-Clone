@@ -36,7 +36,7 @@ class ItemUpdate(BaseModel):
 class ItemResponse(BaseModel):
     """Item response schema."""
 
-    id: int
+    id: str
     name: str
     sku: Optional[str]
     barcode: Optional[str]
@@ -56,12 +56,12 @@ class ItemResponse(BaseModel):
 class InventoryTransactionCreate(BaseModel):
     """Inventory transaction creation schema."""
 
-    item_id: int
+    item_id: str
     transaction_type: str = Field(..., pattern="^(stock_in|stock_out|wastage|adjustment)$")
     quantity: Decimal = Field(..., gt=0)
     unit_price: Optional[Decimal] = Field(None, ge=0)
     date: datetime
-    reference_id: Optional[int] = None
+    reference_id: Optional[str] = None
     reference_type: Optional[str] = Field(None, max_length=50)
     remarks: Optional[str] = None
 
@@ -69,13 +69,13 @@ class InventoryTransactionCreate(BaseModel):
 class InventoryTransactionResponse(BaseModel):
     """Inventory transaction response schema."""
 
-    id: int
-    item_id: int
+    id: str
+    item_id: str
     transaction_type: str
     quantity: Decimal
     unit_price: Optional[Decimal]
     date: datetime
-    reference_id: Optional[int]
+    reference_id: Optional[str]
     reference_type: Optional[str]
     remarks: Optional[str]
     created_at: datetime
@@ -87,8 +87,8 @@ class InventoryTransactionResponse(BaseModel):
 class LowStockAlertResponse(BaseModel):
     """Low stock alert response schema."""
 
-    id: int
-    item_id: int
+    id: str
+    item_id: str
     item_name: str
     current_stock: Decimal
     threshold: Decimal

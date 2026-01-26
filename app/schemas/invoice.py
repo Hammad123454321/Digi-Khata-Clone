@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class InvoiceItemCreate(BaseModel):
     """Invoice item creation schema."""
 
-    item_id: Optional[int] = None
+    item_id: Optional[str] = None
     item_name: str = Field(..., min_length=1, max_length=255)
     quantity: Decimal = Field(..., gt=0)
     unit_price: Decimal = Field(..., ge=0)
@@ -17,7 +17,7 @@ class InvoiceItemCreate(BaseModel):
 class InvoiceCreate(BaseModel):
     """Invoice creation schema."""
 
-    customer_id: Optional[int] = None
+    customer_id: Optional[str] = None
     invoice_type: str = Field(..., pattern="^(cash|credit)$")
     date: datetime
     items: List[InvoiceItemCreate] = Field(..., min_items=1)
@@ -29,8 +29,8 @@ class InvoiceCreate(BaseModel):
 class InvoiceItemResponse(BaseModel):
     """Invoice item response schema."""
 
-    id: int
-    item_id: Optional[int]
+    id: str
+    item_id: Optional[str]
     item_name: str
     quantity: Decimal
     unit_price: Decimal
@@ -43,9 +43,9 @@ class InvoiceItemResponse(BaseModel):
 class InvoiceResponse(BaseModel):
     """Invoice response schema."""
 
-    id: int
+    id: str
     invoice_number: str
-    customer_id: Optional[int]
+    customer_id: Optional[str]
     invoice_type: str
     date: datetime
     subtotal: Decimal
@@ -65,9 +65,9 @@ class InvoiceResponse(BaseModel):
 class InvoiceListResponse(BaseModel):
     """Invoice list response schema."""
 
-    id: int
+    id: str
     invoice_number: str
-    customer_id: Optional[int]
+    customer_id: Optional[str]
     invoice_type: str
     date: datetime
     total_amount: Decimal

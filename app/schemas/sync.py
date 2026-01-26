@@ -8,7 +8,7 @@ class SyncChangeRequest(BaseModel):
     """Single change to sync."""
 
     entity_type: str = Field(..., description="Entity type (e.g., 'cash_transaction', 'item', 'invoice')")
-    entity_id: int = Field(..., description="Entity ID")
+    entity_id: str = Field(..., description="Entity ID")
     action: str = Field(..., pattern="^(create|update|delete)$", description="Action type")
     data: Dict[str, Any] = Field(..., description="Entity data snapshot")
     updated_at: datetime = Field(..., description="Last update timestamp from client")
@@ -27,11 +27,11 @@ class SyncChangeResponse(BaseModel):
     """Single change response."""
 
     entity_type: str
-    entity_id: int
+    entity_id: str
     action: str
     data: Dict[str, Any]
     sync_timestamp: datetime
-    change_id: int
+    change_id: str
 
 
 class SyncPullResponse(BaseModel):
@@ -53,7 +53,7 @@ class SyncConflict(BaseModel):
     """Conflict information."""
 
     entity_type: str
-    entity_id: int
+    entity_id: str
     server_version: datetime
     client_version: datetime
     server_data: Dict[str, Any]
@@ -64,7 +64,7 @@ class SyncConflict(BaseModel):
 class SyncPushResponse(BaseModel):
     """Response for push changes."""
 
-    accepted: List[int] = Field(default_factory=list, description="Accepted change IDs")
+    accepted: List[str] = Field(default_factory=list, description="Accepted change IDs")
     conflicts: List[SyncConflict] = Field(default_factory=list, description="Conflicts detected")
     rejected: List[Dict[str, Any]] = Field(default_factory=list, description="Rejected changes with errors")
     next_cursor: Optional[str] = Field(None, description="New sync cursor after push")

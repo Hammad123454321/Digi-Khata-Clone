@@ -17,7 +17,7 @@ class SupplierCreate(BaseModel):
 class SupplierResponse(BaseModel):
     """Supplier response schema."""
 
-    id: int
+    id: str
     name: str
     phone: Optional[str]
     email: Optional[str]
@@ -40,7 +40,7 @@ class SupplierPaymentCreate(BaseModel):
 class SupplierPurchaseItem(BaseModel):
     """Supplier purchase item schema."""
 
-    item_id: int = Field(..., gt=0, description="Item ID must be positive")
+    item_id: str = Field(..., description="Item ID")
     quantity: Decimal = Field(..., gt=0, description="Quantity must be positive")
     unit_price: Optional[Decimal] = Field(None, gt=0, description="Unit price must be positive if provided")
 

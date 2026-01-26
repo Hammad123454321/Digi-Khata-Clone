@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from pydantic import Field, Index
+from pydantic import Field
 from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
@@ -12,8 +12,8 @@ from app.core.security import encrypt_data, decrypt_data
 class Staff(BaseModel):
     """Staff model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    name: Indexed(str, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    name: Indexed(str, )
     phone: Optional[str] = Field(default=None)  # Encrypted phone
     email: Optional[str] = Field(default=None)  # Encrypted email
     role: Optional[str] = None
@@ -55,11 +55,11 @@ class Staff(BaseModel):
 class StaffSalary(BaseModel):
     """Staff salary record model."""
 
-    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
-    staff_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, )
+    staff_id: Indexed(PydanticObjectId, )
     amount: Decimal
-    date: Indexed(datetime, index_type=Index.ASCENDING)
-    payment_mode: Indexed(str, index_type=Index.ASCENDING)  # cash, bank
+    date: Indexed(datetime, )
+    payment_mode: Indexed(str, )  # cash, bank
     remarks: Optional[str] = None
     reference_id: Optional[PydanticObjectId] = None  # Reference to bank transaction, etc.
     reference_type: Optional[str] = None
