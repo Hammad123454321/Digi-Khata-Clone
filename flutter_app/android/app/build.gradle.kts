@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.digikhata.digikhata_clone"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

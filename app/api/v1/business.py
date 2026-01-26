@@ -26,7 +26,17 @@ async def create_business(
         language_preference=data.language_preference,
         max_devices=data.max_devices,
     )
-    return business
+    # Convert ObjectId to string for response
+    return BusinessResponse(
+        id=str(business.id),
+        name=business.name,
+        phone=business.phone,
+        email=business.email,
+        address=business.address,
+        is_active=business.is_active,
+        language_preference=business.language_preference,
+        max_devices=business.max_devices,
+    )
 
 
 @router.get("", response_model=List[BusinessResponse])
@@ -35,7 +45,20 @@ async def list_businesses(
 ):
     """List all businesses for current user."""
     businesses = await business_service.list_user_businesses(str(current_user.id))
-    return businesses
+    # Convert ObjectIds to strings for response
+    return [
+        BusinessResponse(
+            id=str(business.id),
+            name=business.name,
+            phone=business.phone,
+            email=business.email,
+            address=business.address,
+            is_active=business.is_active,
+            language_preference=business.language_preference,
+            max_devices=business.max_devices,
+        )
+        for business in businesses
+    ]
 
 
 @router.get("/{business_id}", response_model=BusinessResponse)
@@ -44,7 +67,17 @@ async def get_business(
     current_business: Business = Depends(get_current_business),
 ):
     """Get business details."""
-    return current_business
+    # Convert ObjectId to string for response
+    return BusinessResponse(
+        id=str(current_business.id),
+        name=current_business.name,
+        phone=current_business.phone,
+        email=current_business.email,
+        address=current_business.address,
+        is_active=current_business.is_active,
+        language_preference=current_business.language_preference,
+        max_devices=current_business.max_devices,
+    )
 
 
 @router.patch("/{business_id}", response_model=BusinessResponse)
@@ -62,4 +95,14 @@ async def update_business(
         language_preference=data.language_preference,
         max_devices=data.max_devices,
     )
-    return business
+    # Convert ObjectId to string for response
+    return BusinessResponse(
+        id=str(business.id),
+        name=business.name,
+        phone=business.phone,
+        email=business.email,
+        address=business.address,
+        is_active=business.is_active,
+        language_preference=business.language_preference,
+        max_devices=business.max_devices,
+    )

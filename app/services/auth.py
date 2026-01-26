@@ -147,7 +147,7 @@ class AuthService:
                     )
                     await device.insert()
 
-                device_info = {"device_id": device.device_id, "business_id": business.id}
+                device_info = {"device_id": device.device_id, "business_id": str(business.id)}
 
         logger.info("user_authenticated", user_id=str(user.id), phone=phone)
 
