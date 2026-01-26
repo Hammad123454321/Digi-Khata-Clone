@@ -25,7 +25,16 @@ async def create_staff(
         role=data.role,
         address=data.address,
     )
-    return staff
+    # Convert ObjectId to string for response
+    return StaffResponse(
+        id=str(staff.id),
+        name=staff.name,
+        phone=staff.get_phone() if hasattr(staff, 'get_phone') else staff.phone,
+        email=staff.get_email() if hasattr(staff, 'get_email') else staff.email,
+        role=staff.role,
+        address=staff.address,
+        is_active=staff.is_active,
+    )
 
 
 @router.get("", response_model=List[StaffResponse])
@@ -42,7 +51,19 @@ async def list_staff(
         limit=limit,
         offset=offset,
     )
-    return staff_list
+    # Convert ObjectIds to strings for response
+    return [
+        StaffResponse(
+            id=str(s.id),
+            name=s.name,
+            phone=s.get_phone() if hasattr(s, 'get_phone') else s.phone,
+            email=s.get_email() if hasattr(s, 'get_email') else s.email,
+            role=s.role,
+            address=s.address,
+            is_active=s.is_active,
+        )
+        for s in staff_list
+    ]
 
 
 @router.get("/{staff_id}", response_model=StaffResponse)
@@ -51,7 +72,17 @@ async def get_staff(
     current_business: Business = Depends(get_current_business),
 ):
     """Get staff details."""
-    return await staff_service.get_staff(staff_id, str(current_business.id))
+    staff = await staff_service.get_staff(staff_id, str(current_business.id))
+    # Convert ObjectId to string for response
+    return StaffResponse(
+        id=str(staff.id),
+        name=staff.name,
+        phone=staff.get_phone() if hasattr(staff, 'get_phone') else staff.phone,
+        email=staff.get_email() if hasattr(staff, 'get_email') else staff.email,
+        role=staff.role,
+        address=staff.address,
+        is_active=staff.is_active,
+    )
 
 
 @router.post("/{staff_id}/salaries", status_code=201)

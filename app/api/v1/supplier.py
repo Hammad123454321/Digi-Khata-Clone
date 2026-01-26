@@ -26,7 +26,16 @@ async def create_supplier(
         email=data.email,
         address=data.address,
     )
-    return supplier
+    # Convert ObjectId to string for response
+    return SupplierResponse(
+        id=str(supplier.id),
+        name=supplier.name,
+        phone=supplier.get_phone() if hasattr(supplier, 'get_phone') else supplier.phone,
+        email=supplier.get_email() if hasattr(supplier, 'get_email') else supplier.email,
+        address=supplier.address,
+        is_active=supplier.is_active,
+        balance=None,
+    )
 
 
 @router.get("", response_model=List[SupplierResponse])
@@ -45,7 +54,19 @@ async def list_suppliers(
         limit=limit,
         offset=offset,
     )
-    return suppliers
+    # Convert ObjectIds to strings for response
+    return [
+        SupplierResponse(
+            id=str(s.id),
+            name=s.name,
+            phone=s.get_phone() if hasattr(s, 'get_phone') else s.phone,
+            email=s.get_email() if hasattr(s, 'get_email') else s.email,
+            address=s.address,
+            is_active=s.is_active,
+            balance=None,
+        )
+        for s in suppliers
+    ]
 
 
 @router.get("/{supplier_id}", response_model=SupplierResponse)
@@ -61,9 +82,18 @@ async def get_supplier(
         SupplierBalance.business_id == current_business.id,
         SupplierBalance.supplier_id == supplier.id,
     )
-    supplier.balance = balance.balance if balance else Decimal("0.00")
+    supplier_balance = balance.balance if balance else Decimal("0.00")
     
-    return supplier
+    # Convert ObjectId to string for response
+    return SupplierResponse(
+        id=str(supplier.id),
+        name=supplier.name,
+        phone=supplier.get_phone() if hasattr(supplier, 'get_phone') else supplier.phone,
+        email=supplier.get_email() if hasattr(supplier, 'get_email') else supplier.email,
+        address=supplier.address,
+        is_active=supplier.is_active,
+        balance=supplier_balance,
+    )
 
 
 @router.post("/{supplier_id}/payments", status_code=201)

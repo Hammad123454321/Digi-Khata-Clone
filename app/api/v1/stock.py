@@ -37,7 +37,21 @@ async def create_item(
         min_stock_threshold=data.min_stock_threshold,
         description=data.description,
     )
-    return item
+    # Convert ObjectId to string for response
+    return ItemResponse(
+        id=str(item.id),
+        name=item.name,
+        sku=item.sku,
+        barcode=item.barcode,
+        purchase_price=item.purchase_price,
+        sale_price=item.sale_price,
+        unit=item.unit.value,
+        opening_stock=item.opening_stock,
+        current_stock=item.current_stock,
+        min_stock_threshold=item.min_stock_threshold,
+        is_active=item.is_active,
+        description=item.description,
+    )
 
 
 @router.get("/items", response_model=List[ItemResponse])
@@ -56,7 +70,24 @@ async def list_items(
         limit=limit,
         offset=offset,
     )
-    return items
+    # Convert ObjectIds to strings for response
+    return [
+        ItemResponse(
+            id=str(item.id),
+            name=item.name,
+            sku=item.sku,
+            barcode=item.barcode,
+            purchase_price=item.purchase_price,
+            sale_price=item.sale_price,
+            unit=item.unit.value,
+            opening_stock=item.opening_stock,
+            current_stock=item.current_stock,
+            min_stock_threshold=item.min_stock_threshold,
+            is_active=item.is_active,
+            description=item.description,
+        )
+        for item in items
+    ]
 
 
 @router.get("/items/{item_id}", response_model=ItemResponse)
@@ -65,7 +96,22 @@ async def get_item(
     current_business: Business = Depends(get_current_business),
 ):
     """Get item details."""
-    return await stock_service.get_item(item_id, str(current_business.id))
+    item = await stock_service.get_item(item_id, str(current_business.id))
+    # Convert ObjectId to string for response
+    return ItemResponse(
+        id=str(item.id),
+        name=item.name,
+        sku=item.sku,
+        barcode=item.barcode,
+        purchase_price=item.purchase_price,
+        sale_price=item.sale_price,
+        unit=item.unit.value,
+        opening_stock=item.opening_stock,
+        current_stock=item.current_stock,
+        min_stock_threshold=item.min_stock_threshold,
+        is_active=item.is_active,
+        description=item.description,
+    )
 
 
 @router.patch("/items/{item_id}", response_model=ItemResponse)
@@ -88,7 +134,21 @@ async def update_item(
         description=data.description,
         is_active=data.is_active,
     )
-    return item
+    # Convert ObjectId to string for response
+    return ItemResponse(
+        id=str(item.id),
+        name=item.name,
+        sku=item.sku,
+        barcode=item.barcode,
+        purchase_price=item.purchase_price,
+        sale_price=item.sale_price,
+        unit=item.unit.value,
+        opening_stock=item.opening_stock,
+        current_stock=item.current_stock,
+        min_stock_threshold=item.min_stock_threshold,
+        is_active=item.is_active,
+        description=item.description,
+    )
 
 
 @router.post("/transactions", response_model=InventoryTransactionResponse, status_code=201)
@@ -110,7 +170,19 @@ async def create_inventory_transaction(
         remarks=data.remarks,
         user_id=str(current_user.id),
     )
-    return transaction
+    # Convert ObjectIds to strings for response
+    return InventoryTransactionResponse(
+        id=str(transaction.id),
+        item_id=str(transaction.item_id),
+        transaction_type=transaction.transaction_type.value,
+        quantity=transaction.quantity,
+        unit_price=transaction.unit_price,
+        date=transaction.date,
+        reference_id=str(transaction.reference_id) if transaction.reference_id else None,
+        reference_type=transaction.reference_type,
+        remarks=transaction.remarks,
+        created_at=transaction.created_at,
+    )
 
 
 @router.get("/alerts", response_model=List[LowStockAlertResponse])

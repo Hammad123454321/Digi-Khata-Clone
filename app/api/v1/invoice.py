@@ -8,7 +8,7 @@ import io
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
-from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceListResponse
+from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceListResponse, InvoiceItemResponse
 from app.services.invoice import invoice_service
 from app.services.pdf import PDFService
 
@@ -46,7 +46,35 @@ async def create_invoice(
         logger = get_logger(__name__)
         logger.error("pdf_generation_failed", invoice_id=str(invoice.id), error=str(e))
     
-    return invoice
+    # Convert ObjectIds to strings for response
+    items = [
+        InvoiceItemResponse(
+            id=str(item.id),
+            item_id=str(item.item_id) if item.item_id else None,
+            item_name=item.item_name,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            total_price=item.total_price,
+        )
+        for item in invoice.items
+    ] if invoice.items else []
+    
+    return InvoiceResponse(
+        id=str(invoice.id),
+        invoice_number=invoice.invoice_number,
+        customer_id=str(invoice.customer_id) if invoice.customer_id else None,
+        invoice_type=invoice.invoice_type.value,
+        date=invoice.date,
+        subtotal=invoice.subtotal,
+        tax_amount=invoice.tax_amount,
+        discount_amount=invoice.discount_amount,
+        total_amount=invoice.total_amount,
+        paid_amount=invoice.paid_amount,
+        remarks=invoice.remarks,
+        pdf_path=invoice.pdf_path,
+        items=items,
+        created_at=invoice.created_at,
+    )
 
 
 @router.get("", response_model=List[InvoiceListResponse])
@@ -71,7 +99,20 @@ async def list_invoices(
         limit=limit,
         offset=offset,
     )
-    return invoices
+    # Convert ObjectIds to strings for response
+    return [
+        InvoiceListResponse(
+            id=str(inv.id),
+            invoice_number=inv.invoice_number,
+            customer_id=str(inv.customer_id) if inv.customer_id else None,
+            invoice_type=inv.invoice_type.value,
+            date=inv.date,
+            total_amount=inv.total_amount,
+            paid_amount=inv.paid_amount,
+            created_at=inv.created_at,
+        )
+        for inv in invoices
+    ]
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
@@ -80,7 +121,37 @@ async def get_invoice(
     current_business: Business = Depends(get_current_business),
 ):
     """Get invoice details."""
-    return await invoice_service.get_invoice(invoice_id, str(current_business.id))
+    invoice = await invoice_service.get_invoice(invoice_id, str(current_business.id))
+    
+    # Convert ObjectIds to strings for response
+    items = [
+        InvoiceItemResponse(
+            id=str(item.id),
+            item_id=str(item.item_id) if item.item_id else None,
+            item_name=item.item_name,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            total_price=item.total_price,
+        )
+        for item in invoice.items
+    ] if invoice.items else []
+    
+    return InvoiceResponse(
+        id=str(invoice.id),
+        invoice_number=invoice.invoice_number,
+        customer_id=str(invoice.customer_id) if invoice.customer_id else None,
+        invoice_type=invoice.invoice_type.value,
+        date=invoice.date,
+        subtotal=invoice.subtotal,
+        tax_amount=invoice.tax_amount,
+        discount_amount=invoice.discount_amount,
+        total_amount=invoice.total_amount,
+        paid_amount=invoice.paid_amount,
+        remarks=invoice.remarks,
+        pdf_path=invoice.pdf_path,
+        items=items,
+        created_at=invoice.created_at,
+    )
 
 
 @router.get("/{invoice_id}/pdf")

@@ -32,7 +32,18 @@ async def create_account(
         ifsc_code=data.ifsc_code,
         opening_balance=data.opening_balance,
     )
-    return account
+    # Convert ObjectId to string for response
+    return BankAccountResponse(
+        id=str(account.id),
+        bank_name=account.bank_name,
+        account_number=account.get_account_number() if hasattr(account, 'get_account_number') else account.account_number,
+        account_holder_name=account.get_account_holder_name() if hasattr(account, 'get_account_holder_name') else account.account_holder_name,
+        branch=account.branch,
+        ifsc_code=account.ifsc_code,
+        opening_balance=account.opening_balance,
+        current_balance=account.current_balance,
+        is_active=account.is_active,
+    )
 
 
 @router.get("/accounts", response_model=List[BankAccountResponse])
@@ -46,7 +57,21 @@ async def list_accounts(
         query = query.find(BankAccount.is_active == is_active)
 
     accounts = await query.to_list()
-    return accounts
+    # Convert ObjectIds to strings for response
+    return [
+        BankAccountResponse(
+            id=str(acc.id),
+            bank_name=acc.bank_name,
+            account_number=acc.get_account_number() if hasattr(acc, 'get_account_number') else acc.account_number,
+            account_holder_name=acc.get_account_holder_name() if hasattr(acc, 'get_account_holder_name') else acc.account_holder_name,
+            branch=acc.branch,
+            ifsc_code=acc.ifsc_code,
+            opening_balance=acc.opening_balance,
+            current_balance=acc.current_balance,
+            is_active=acc.is_active,
+        )
+        for acc in accounts
+    ]
 
 
 @router.post("/transactions", status_code=201)

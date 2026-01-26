@@ -27,7 +27,16 @@ async def list_categories(
         business_id=str(current_business.id),
         is_active=is_active,
     )
-    return categories
+    # Convert ObjectIds to strings for response
+    return [
+        ExpenseCategoryResponse(
+            id=str(c.id),
+            name=c.name,
+            description=c.description,
+            is_active=c.is_active,
+        )
+        for c in categories
+    ]
 
 
 @router.post("/categories", response_model=ExpenseCategoryResponse, status_code=201)
@@ -41,7 +50,13 @@ async def create_category(
         name=data.name,
         description=data.description,
     )
-    return category
+    # Convert ObjectId to string for response
+    return ExpenseCategoryResponse(
+        id=str(category.id),
+        name=category.name,
+        description=category.description,
+        is_active=category.is_active,
+    )
 
 
 @router.post("", response_model=ExpenseResponse, status_code=201)
@@ -60,7 +75,16 @@ async def create_expense(
         description=data.description,
         user_id=str(current_user.id),
     )
-    return expense
+    # Convert ObjectIds to strings for response
+    return ExpenseResponse(
+        id=str(expense.id),
+        category_id=str(expense.category_id) if expense.category_id else None,
+        amount=expense.amount,
+        date=expense.date,
+        payment_mode=expense.payment_mode.value,
+        description=expense.description,
+        created_at=expense.created_at,
+    )
 
 
 @router.get("", response_model=List[ExpenseResponse])
@@ -83,7 +107,19 @@ async def list_expenses(
         limit=limit,
         offset=offset,
     )
-    return expenses
+    # Convert ObjectIds to strings for response
+    return [
+        ExpenseResponse(
+            id=str(e.id),
+            category_id=str(e.category_id) if e.category_id else None,
+            amount=e.amount,
+            date=e.date,
+            payment_mode=e.payment_mode.value,
+            description=e.description,
+            created_at=e.created_at,
+        )
+        for e in expenses
+    ]
 
 
 @router.post("/summary", response_model=dict)
