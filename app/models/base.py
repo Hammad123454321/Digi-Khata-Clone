@@ -1,7 +1,7 @@
 """Base model classes for Beanie."""
 from datetime import datetime, timezone
 from beanie import Document
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from typing import Optional
 
 
@@ -20,6 +20,10 @@ class TimestampMixin:
 
 class BaseModel(Document, TimestampMixin):
     """Base model with common fields."""
+    
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
     
     class Settings:
         """Beanie document settings."""

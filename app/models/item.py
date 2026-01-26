@@ -31,7 +31,7 @@ class Item(BaseModel):
     sale_price: Decimal
     unit: ItemUnit = Field(default=ItemUnit.PIECE)
     opening_stock: Decimal = Field(default=Decimal("0.000"))
-    current_stock: Indexed(Decimal, )
+    current_stock: Decimal
     min_stock_threshold: Optional[Decimal] = None  # For low stock alerts
     is_active: bool = Field(default=True)
     description: Optional[str] = None
@@ -41,6 +41,7 @@ class Item(BaseModel):
         indexes = [
             [("business_id", 1)],
             [("name", 1)],
+            [("current_stock", 1)],  # Index for current_stock queries
             [("business_id", 1), ("name", 1)],
             [("business_id", 1), ("is_active", 1)],
         ]
