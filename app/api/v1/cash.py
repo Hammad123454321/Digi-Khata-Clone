@@ -36,7 +36,18 @@ async def create_cash_transaction(
         reference_type=data.reference_type,
         user_id=str(current_user.id),
     )
-    return transaction
+    # Convert ObjectId to string for response
+    return CashTransactionResponse(
+        id=str(transaction.id),
+        transaction_type=transaction.transaction_type.value,
+        amount=transaction.amount,
+        date=transaction.date,
+        source=transaction.source,
+        remarks=transaction.remarks,
+        reference_id=str(transaction.reference_id) if transaction.reference_id else None,
+        reference_type=transaction.reference_type,
+        created_at=transaction.created_at,
+    )
 
 
 @router.get("/transactions", response_model=List[CashTransactionResponse])
@@ -57,7 +68,21 @@ async def list_cash_transactions(
         limit=limit,
         offset=offset,
     )
-    return transactions
+    # Convert ObjectIds to strings for response
+    return [
+        CashTransactionResponse(
+            id=str(t.id),
+            transaction_type=t.transaction_type.value,
+            amount=t.amount,
+            date=t.date,
+            source=t.source,
+            remarks=t.remarks,
+            reference_id=str(t.reference_id) if t.reference_id else None,
+            reference_type=t.reference_type,
+            created_at=t.created_at,
+        )
+        for t in transactions
+    ]
 
 
 @router.get("/balance/{balance_date}", response_model=CashBalanceResponse)
@@ -91,4 +116,27 @@ async def get_cash_summary(
         start_date=data.start_date,
         end_date=data.end_date,
     )
-    return summary
+    # Convert transactions ObjectIds to strings
+    transactions = [
+        CashTransactionResponse(
+            id=str(t.id),
+            transaction_type=t.transaction_type.value,
+            amount=t.amount,
+            date=t.date,
+            source=t.source,
+            remarks=t.remarks,
+            reference_id=str(t.reference_id) if t.reference_id else None,
+            reference_type=t.reference_type,
+            created_at=t.created_at,
+        )
+        for t in summary["transactions"]
+    ]
+    return CashSummaryResponse(
+        start_date=summary["start_date"],
+        end_date=summary["end_date"],
+        opening_balance=summary["opening_balance"],
+        total_cash_in=summary["total_cash_in"],
+        total_cash_out=summary["total_cash_out"],
+        closing_balance=summary["closing_balance"],
+        transactions=transactions,
+    )
