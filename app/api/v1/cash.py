@@ -65,12 +65,19 @@ async def get_daily_balance(
     balance_date: date,
     current_business: Business = Depends(get_current_business),
 ):
-    """Get daily cash balance."""
+    """Get daily cash balance. Returns calculated balance even if no record exists."""
     balance = await cash_service.get_daily_balance(str(current_business.id), balance_date)
     if not balance:
         from app.core.exceptions import NotFoundError
         raise NotFoundError("Balance not found for this date")
-    return balance
+    # Convert ObjectId to string for response
+    return CashBalanceResponse(
+        date=balance.date,
+        opening_balance=balance.opening_balance,
+        total_cash_in=balance.total_cash_in,
+        total_cash_out=balance.total_cash_out,
+        closing_balance=balance.closing_balance,
+    )
 
 
 @router.post("/summary", response_model=CashSummaryResponse)

@@ -138,18 +138,54 @@ class CashService:
 
     @staticmethod
     async def get_daily_balance(business_id: str, balance_date: date) -> Optional[CashBalance]:
-        """Get daily cash balance."""
+        """Get daily cash balance. Returns calculated balance if record doesn't exist."""
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
             raise ValueError(f"Invalid business ID format: {business_id}")
 
         start_of_day = datetime.combine(balance_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_of_day = datetime.combine(balance_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
         balance = await CashBalance.find_one(
             CashBalance.business_id == business_obj_id,
             CashBalance.date == start_of_day,
         )
-        return balance
+        
+        # If balance exists, return it
+        if balance:
+            return balance
+        
+        # If balance doesn't exist, calculate it from previous day and transactions
+        # Get previous day's closing balance
+        prev_day_start = datetime.combine((balance_date - timedelta(days=1)).date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+        prev_balance = await CashBalance.find_one(
+            CashBalance.business_id == business_obj_id,
+            CashBalance.date == prev_day_start,
+        )
+        opening_balance = prev_balance.closing_balance if prev_balance else Decimal("0.00")
+        
+        # Get transactions for this date
+        transactions = await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.date >= start_of_day,
+            CashTransaction.date <= end_of_day,
+        ).to_list()
+        
+        # Calculate totals
+        total_cash_in = sum(t.amount for t in transactions if t.transaction_type == CashTransactionType.CASH_IN)
+        total_cash_out = sum(t.amount for t in transactions if t.transaction_type == CashTransactionType.CASH_OUT)
+        closing_balance = opening_balance + total_cash_in - total_cash_out
+        
+        # Return calculated balance (not saved to DB)
+        return CashBalance(
+            business_id=business_obj_id,
+            date=start_of_day,
+            opening_balance=opening_balance,
+            total_cash_in=total_cash_in,
+            total_cash_out=total_cash_out,
+            closing_balance=closing_balance,
+        )
 
     @staticmethod
     async def get_summary(
