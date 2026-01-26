@@ -60,7 +60,7 @@ class InventoryTransaction(BaseModel):
 
     business_id: Indexed(PydanticObjectId, )
     item_id: Indexed(PydanticObjectId, )
-    transaction_type: Indexed(InventoryTransactionType, )
+    transaction_type: InventoryTransactionType
     quantity: Decimal
     unit_price: Optional[Decimal] = None  # Purchase price for stock_in
     date: Indexed(datetime, )

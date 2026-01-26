@@ -23,7 +23,7 @@ class SyncChangeLog(BaseModel):
     device_id: Optional[Indexed(str, )] = None  # Device that made the change (null for server changes)
     entity_type: Indexed(str, )  # cash_transaction, item, invoice, customer, etc.
     entity_id: Indexed(PydanticObjectId, )
-    action: Indexed(SyncAction, )
+    action: SyncAction
     data: Optional[dict[str, Any]] = None  # Snapshot of entity data at time of change
     sync_timestamp: Indexed(datetime, )  # When change occurred
     synced_devices: Optional[list[str]] = None  # List of device_ids that have synced this change

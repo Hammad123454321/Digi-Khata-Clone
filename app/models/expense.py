@@ -41,7 +41,7 @@ class Expense(BaseModel):
     category_id: Optional[Indexed(PydanticObjectId, )] = None
     amount: Decimal
     date: Indexed(datetime, )
-    payment_mode: Indexed(PaymentMode, )
+    payment_mode: PaymentMode
     description: Optional[str] = None
     reference_id: Optional[PydanticObjectId] = None  # Reference to bank transaction, etc.
     reference_type: Optional[str] = None

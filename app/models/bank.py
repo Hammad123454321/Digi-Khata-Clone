@@ -66,7 +66,7 @@ class BankTransaction(BaseModel):
 
     business_id: Indexed(PydanticObjectId, )
     bank_account_id: Indexed(PydanticObjectId, )
-    transaction_type: Indexed(BankTransactionType, )
+    transaction_type: BankTransactionType
     amount: Decimal
     date: Indexed(datetime, )
     reference_number: Optional[str] = None

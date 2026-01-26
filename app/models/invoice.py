@@ -22,7 +22,7 @@ class Invoice(BaseModel):
     business_id: Indexed(PydanticObjectId, )
     customer_id: Optional[Indexed(PydanticObjectId, )] = None
     invoice_number: Indexed(str, unique=True, )
-    invoice_type: Indexed(InvoiceType, )
+    invoice_type: InvoiceType
     date: Indexed(datetime, )
     subtotal: Decimal
     tax_amount: Decimal = Field(default=Decimal("0.00"))

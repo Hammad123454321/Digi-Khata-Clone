@@ -20,7 +20,7 @@ class CashTransaction(BaseModel):
     """Cash transaction model (ledger-style)."""
 
     business_id: Indexed(PydanticObjectId, )
-    transaction_type: Indexed(CashTransactionType, )
+    transaction_type: CashTransactionType
     amount: Decimal
     date: Indexed(datetime, )
     source: Optional[str] = None  # e.g., "sales", "customer_payment", "recovery"
