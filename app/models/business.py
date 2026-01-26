@@ -1,33 +1,38 @@
 """Business model."""
-from sqlalchemy import Column, String, Boolean, Text, Integer
-from sqlalchemy.orm import relationship
+from typing import Optional
+from pydantic import Field, Index
+from beanie import Indexed
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class Business(BaseModel):
     """Business/tenant model."""
 
-    __tablename__ = "businesses"
+    name: Indexed(str, index_type=Index.ASCENDING)
+    phone: Indexed(str, unique=True, index_type=Index.ASCENDING)  # Keep unencrypted for lookups
+    email: Optional[str] = Field(default=None)  # Encrypted email
+    address: Optional[str] = None
+    is_active: bool = Field(default=True)
+    language_preference: str = Field(default="en")  # en, ur
+    max_devices: int = Field(default=3)
 
-    name = Column(String(255), nullable=False, index=True)
-    phone = Column(String(20), unique=True, nullable=False, index=True)
-    email = Column(String(255), nullable=True)
-    address = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    language_preference = Column(String(10), default="en", nullable=False)  # en, ur
-    max_devices = Column(Integer, default=3, nullable=False)
+    class Settings:
+        name = "businesses"
+        indexes = [
+            [("name", 1)],
+            [("phone", 1)],
+            [("is_active", 1)],
+        ]
 
-    # Relationships
-    users = relationship("UserMembership", back_populates="business", cascade="all, delete-orphan")
-    devices = relationship("Device", back_populates="business", cascade="all, delete-orphan")
-    items = relationship("Item", back_populates="business", cascade="all, delete-orphan")
-    customers = relationship("Customer", back_populates="business", cascade="all, delete-orphan")
-    suppliers = relationship("Supplier", back_populates="business", cascade="all, delete-orphan")
-    invoices = relationship("Invoice", back_populates="business", cascade="all, delete-orphan")
-    expenses = relationship("Expense", back_populates="business", cascade="all, delete-orphan")
-    staff = relationship("Staff", back_populates="business", cascade="all, delete-orphan")
-    bank_accounts = relationship("BankAccount", back_populates="business", cascade="all, delete-orphan")
-    cash_transactions = relationship("CashTransaction", back_populates="business", cascade="all, delete-orphan")
-    backups = relationship("Backup", back_populates="business", cascade="all, delete-orphan")
-
+    def set_email(self, email: str) -> None:
+        """Set encrypted email."""
+        if email:
+            self.email = encrypt_data(email)
+    
+    def get_email(self) -> Optional[str]:
+        """Get decrypted email."""
+        if self.email:
+            return decrypt_data(self.email)
+        return None

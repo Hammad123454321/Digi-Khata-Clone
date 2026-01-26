@@ -1,71 +1,90 @@
 """Customer models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Text, DateTime, Boolean, Index, UniqueConstraint
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class Customer(BaseModel):
     """Customer model."""
 
-    __tablename__ = "customers"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    name: Indexed(str, index_type=Index.ASCENDING)
+    phone: Optional[str] = Field(default=None)  # Encrypted phone
+    email: Optional[str] = Field(default=None)  # Encrypted email
+    address: Optional[str] = None
+    is_active: bool = Field(default=True)
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    phone = Column(String(20), nullable=True, index=True)
-    email = Column(String(255), nullable=True)
-    address = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    class Settings:
+        name = "customers"
+        indexes = [
+            [("business_id", 1)],
+            [("name", 1)],
+            [("business_id", 1), ("name", 1)],
+            [("business_id", 1), ("is_active", 1)],
+        ]
 
-    # Relationships
-    business = relationship("Business", back_populates="customers")
-    transactions = relationship("CustomerTransaction", back_populates="customer", cascade="all, delete-orphan")
-    balances = relationship("CustomerBalance", back_populates="customer", cascade="all, delete-orphan")
-    invoices = relationship("Invoice", back_populates="customer")
-
-    __table_args__ = (
-        Index("ix_customers_business_name", "business_id", "name"),
-        Index("ix_customers_business_active", "business_id", "is_active"),
-    )
+    def set_phone(self, phone: str) -> None:
+        """Set encrypted phone."""
+        if phone:
+            self.phone = encrypt_data(phone)
+    
+    def get_phone(self) -> Optional[str]:
+        """Get decrypted phone."""
+        if self.phone:
+            return decrypt_data(self.phone)
+        return None
+    
+    def set_email(self, email: str) -> None:
+        """Set encrypted email."""
+        if email:
+            self.email = encrypt_data(email)
+    
+    def get_email(self) -> Optional[str]:
+        """Get decrypted email."""
+        if self.email:
+            return decrypt_data(self.email)
+        return None
 
 
 class CustomerTransaction(BaseModel):
     """Customer transaction model (ledger-style for credit tracking)."""
 
-    __tablename__ = "customer_transactions"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    customer_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    transaction_type: Indexed(str, index_type=Index.ASCENDING)  # credit, payment, adjustment
+    amount: Decimal
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, payment, etc.
+    reference_type: Optional[str] = None  # invoice, payment, manual, etc.
+    remarks: Optional[str] = None
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
-    transaction_type = Column(String(50), nullable=False, index=True)  # credit, payment, adjustment
-    amount = Column(Numeric(15, 2), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    reference_id = Column(Integer, nullable=True)  # Reference to invoice, payment, etc.
-    reference_type = Column(String(50), nullable=True)  # invoice, payment, manual, etc.
-    remarks = Column(Text, nullable=True)
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    customer = relationship("Customer", back_populates="transactions")
-
-    __table_args__ = (
-        Index("ix_customer_transactions_business_customer_date", "business_id", "customer_id", "date"),
-        Index("ix_customer_transactions_business_type_date", "business_id", "transaction_type", "date"),
-    )
+    class Settings:
+        name = "customer_transactions"
+        indexes = [
+            [("business_id", 1)],
+            [("customer_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("customer_id", 1), ("date", 1)],
+            [("business_id", 1), ("transaction_type", 1), ("date", 1)],
+        ]
 
 
 class CustomerBalance(BaseModel):
     """Customer balance snapshot."""
 
-    __tablename__ = "customer_balances"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    customer_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    balance: Decimal = Field(default=Decimal("0.00"))
+    last_transaction_date: Optional[datetime] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
-    balance = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    last_transaction_date = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    customer = relationship("Customer", back_populates="balances")
-
-    __table_args__ = (UniqueConstraint("business_id", "customer_id"),)
-
+    class Settings:
+        name = "customer_balances"
+        indexes = [
+            [("business_id", 1), ("customer_id", 1)],  # Unique constraint
+        ]

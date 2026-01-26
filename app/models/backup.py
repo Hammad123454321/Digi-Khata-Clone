@@ -1,6 +1,9 @@
 """Backup model."""
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, DateTime, Boolean, Numeric, Index
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
+from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
 
@@ -8,21 +11,20 @@ from app.models.base import BaseModel
 class Backup(BaseModel):
     """Backup snapshot model."""
 
-    __tablename__ = "backups"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    backup_type: Indexed(str, index_type=Index.ASCENDING)  # auto, manual
+    file_path: str  # S3 path or local path
+    file_size: Optional[Decimal] = None  # Size in MB
+    status: Indexed(str, index_type=Index.ASCENDING)  # completed, failed, in_progress
+    error_message: Optional[str] = None
+    backup_date: Indexed(datetime, index_type=Index.ASCENDING)
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    backup_type = Column(String(50), nullable=False, index=True)  # auto, manual
-    file_path = Column(String(500), nullable=False)  # S3 path or local path
-    file_size = Column(Numeric(15, 2), nullable=True)  # Size in MB
-    status = Column(String(50), nullable=False, index=True)  # completed, failed, in_progress
-    error_message = Column(Text, nullable=True)
-    backup_date = Column(DateTime(timezone=True), nullable=False, index=True)
-
-    # Relationships
-    business = relationship("Business", back_populates="backups")
-
-    __table_args__ = (
-        Index("ix_backups_business_date", "business_id", "backup_date"),
-        Index("ix_backups_business_status", "business_id", "status"),
-    )
-
+    class Settings:
+        name = "backups"
+        indexes = [
+            [("business_id", 1)],
+            [("backup_date", 1)],
+            [("status", 1)],
+            [("business_id", 1), ("backup_date", 1)],
+            [("business_id", 1), ("status", 1)],
+        ]

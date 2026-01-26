@@ -1,21 +1,16 @@
 """Invoice endpoints."""
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, Query, Response
-from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 import io
 
-from app.core.database import get_db
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceListResponse
 from app.services.invoice import invoice_service
 from app.services.pdf import PDFService
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from app.models.invoice import Invoice
 
 router = APIRouter(prefix="/invoices", tags=["Invoices"])
 
@@ -25,45 +20,31 @@ async def create_invoice(
     data: InvoiceCreate,
     current_business: Business = Depends(get_current_business),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create a new invoice."""
     invoice = await invoice_service.create_invoice(
-        business_id=current_business.id,
-        customer_id=data.customer_id,
+        business_id=str(current_business.id),
+        customer_id=str(data.customer_id) if data.customer_id else None,
         invoice_type=data.invoice_type,
         date=data.date,
-        items=[item.dict() for item in data.items],
+        items=[item.model_dump() for item in data.items],
         tax_amount=data.tax_amount,
         discount_amount=data.discount_amount,
         remarks=data.remarks,
-        user_id=current_user.id,
-        db=db,
+        user_id=str(current_user.id),
     )
-    await db.commit()
     
     # Generate PDF asynchronously (don't block response)
     try:
         await PDFService.generate_invoice_pdf_and_save(
-            invoice.id,
-            db,
+            str(invoice.id),
             upload_to_s3=True
         )
     except Exception as e:
         # Log error but don't fail invoice creation
         from app.core.logging import get_logger
         logger = get_logger(__name__)
-        logger.error("pdf_generation_failed", invoice_id=invoice.id, error=str(e))
-    
-    # Reload with items
-    from sqlalchemy.orm import selectinload
-    from app.models.invoice import Invoice
-    result = await db.execute(
-        select(Invoice)
-        .where(Invoice.id == invoice.id)
-        .options(selectinload(Invoice.items))
-    )
-    invoice = result.scalar_one()
+        logger.error("pdf_generation_failed", invoice_id=str(invoice.id), error=str(e))
     
     return invoice
 
@@ -72,56 +53,81 @@ async def create_invoice(
 async def list_invoices(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    customer_id: Optional[int] = Query(None),
+    customer_id: Optional[str] = Query(None),
     invoice_type: Optional[str] = Query(None, pattern="^(cash|credit)$"),
+    is_paid: Optional[bool] = Query(None, description="Filter by payment status (true=paid, false=unpaid)"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """List invoices."""
     invoices = await invoice_service.list_invoices(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         start_date=start_date,
         end_date=end_date,
         customer_id=customer_id,
         invoice_type=invoice_type,
+        is_paid=is_paid,
         limit=limit,
         offset=offset,
-        db=db,
     )
     return invoices
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
-    invoice_id: int,
+    invoice_id: str,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get invoice details."""
-    return await invoice_service.get_invoice(invoice_id, current_business.id, db)
+    return await invoice_service.get_invoice(invoice_id, str(current_business.id))
 
 
 @router.get("/{invoice_id}/pdf")
 async def get_invoice_pdf(
-    invoice_id: int,
+    invoice_id: str,
+    request: Request,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Download invoice PDF."""
-    # Verify invoice belongs to business
-    invoice = await invoice_service.get_invoice(invoice_id, current_business.id, db)
+    from app.core.logging import get_logger
     
-    # Generate PDF
-    pdf_bytes = await PDFService.generate_invoice_pdf(invoice_id, db)
+    logger = get_logger(__name__)
     
-    # Return as streaming response
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="invoice_{invoice.invoice_number}.pdf"'
+    try:
+        # Verify invoice belongs to business
+        invoice = await invoice_service.get_invoice(invoice_id, str(current_business.id))
+        
+        # Generate PDF
+        pdf_bytes = await PDFService.generate_invoice_pdf(invoice_id)
+        
+        # Get origin for CORS
+        origin = request.headers.get("origin", "*")
+        
+        # Return as streaming response with CORS headers
+        headers = {
+            "Content-Disposition": f'attachment; filename="invoice_{invoice.invoice_number}.pdf"',
+            "Access-Control-Allow-Origin": origin if origin != "*" else "*",
+            "Access-Control-Allow-Credentials": "false",
+            "Access-Control-Expose-Headers": "*",
         }
-    )
+        
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers=headers
+        )
+    except Exception as e:
+        # Handle errors with CORS headers
+        logger.error(f"Error generating PDF: {e}", exc_info=True)
+        
+        origin = request.headers.get("origin", "*")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Error generating PDF: {str(e)}"},
+            headers={
+                "Access-Control-Allow-Origin": origin if origin != "*" else "*",
+                "Access-Control-Allow-Credentials": "false",
+            }
+        )
 

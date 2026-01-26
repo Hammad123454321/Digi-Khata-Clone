@@ -1,8 +1,10 @@
 """Invoice models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Text, DateTime, Boolean, Enum as SQLEnum, Index
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 import enum
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
 
@@ -17,49 +19,46 @@ class InvoiceType(str, enum.Enum):
 class Invoice(BaseModel):
     """Invoice model."""
 
-    __tablename__ = "invoices"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    customer_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
+    invoice_number: Indexed(str, unique=True, index_type=Index.ASCENDING)
+    invoice_type: Indexed(InvoiceType, index_type=Index.ASCENDING)
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    subtotal: Decimal
+    tax_amount: Decimal = Field(default=Decimal("0.00"))
+    discount_amount: Decimal = Field(default=Decimal("0.00"))
+    total_amount: Decimal
+    paid_amount: Decimal = Field(default=Decimal("0.00"))
+    remarks: Optional[str] = None
+    pdf_path: Optional[str] = None  # Path to generated PDF
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
-    invoice_number = Column(String(100), unique=True, nullable=False, index=True)
-    invoice_type = Column(SQLEnum(InvoiceType), nullable=False, index=True)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    subtotal = Column(Numeric(15, 2), nullable=False)
-    tax_amount = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    discount_amount = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    total_amount = Column(Numeric(15, 2), nullable=False)
-    paid_amount = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    remarks = Column(Text, nullable=True)
-    pdf_path = Column(String(500), nullable=True)  # Path to generated PDF
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    business = relationship("Business", back_populates="invoices")
-    customer = relationship("Customer", back_populates="invoices")
-    items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("ix_invoices_business_date", "business_id", "date"),
-        Index("ix_invoices_business_type_date", "business_id", "invoice_type", "date"),
-        Index("ix_invoices_business_customer", "business_id", "customer_id"),
-    )
+    class Settings:
+        name = "invoices"
+        indexes = [
+            [("business_id", 1)],
+            [("invoice_number", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("date", 1)],
+            [("business_id", 1), ("invoice_type", 1), ("date", 1)],
+            [("business_id", 1), ("customer_id", 1)],
+        ]
 
 
 class InvoiceItem(BaseModel):
     """Invoice item model."""
 
-    __tablename__ = "invoice_items"
+    invoice_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    item_id: Optional[Indexed(PydanticObjectId, index_type=Index.ASCENDING)] = None
+    item_name: str  # Snapshot of item name
+    quantity: Decimal
+    unit_price: Decimal
+    total_price: Decimal
 
-    invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True, index=True)
-    item_name = Column(String(255), nullable=False)  # Snapshot of item name
-    quantity = Column(Numeric(15, 3), nullable=False)
-    unit_price = Column(Numeric(15, 2), nullable=False)
-    total_price = Column(Numeric(15, 2), nullable=False)
-
-    # Relationships
-    invoice = relationship("Invoice", back_populates="items")
-    item = relationship("Item", back_populates="invoice_items")
-
-    __table_args__ = (Index("ix_invoice_items_invoice_item", "invoice_id", "item_id"),)
-
+    class Settings:
+        name = "invoice_items"
+        indexes = [
+            [("invoice_id", 1)],
+            [("item_id", 1)],
+            [("invoice_id", 1), ("item_id", 1)],
+        ]

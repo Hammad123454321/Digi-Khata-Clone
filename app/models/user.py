@@ -1,10 +1,12 @@
 """User models."""
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Boolean, Integer, ForeignKey, Enum as SQLEnum, DateTime, UniqueConstraint
-from sqlalchemy.orm import relationship
+from typing import Optional
 import enum
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class UserRoleEnum(str, enum.Enum):
@@ -18,47 +20,60 @@ class UserRoleEnum(str, enum.Enum):
 class User(BaseModel):
     """User model."""
 
-    __tablename__ = "users"
+    phone: Indexed(str, unique=True, index_type=Index.ASCENDING)  # Keep unencrypted for OTP/auth lookups
+    name: Optional[str] = None
+    email: Optional[str] = Field(default=None)  # Encrypted email
+    is_active: bool = Field(default=True)
+    pin_hash: Optional[str] = None  # Optional PIN for app lock
+    last_login_at: Optional[datetime] = None
 
-    phone = Column(String(20), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=True)
-    email = Column(String(255), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    pin_hash = Column(String(255), nullable=True)  # Optional PIN for app lock
-    last_login_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    memberships = relationship("UserMembership", back_populates="user", cascade="all, delete-orphan")
-    devices = relationship("Device", back_populates="user", cascade="all, delete-orphan")
+    class Settings:
+        name = "users"
+        indexes = [
+            [("phone", 1)],
+            [("is_active", 1)],
+        ]
 
     def __repr__(self):
         return f"<User {self.phone}>"
+    
+    def set_email(self, email: str) -> None:
+        """Set encrypted email."""
+        if email:
+            self.email = encrypt_data(email)
+    
+    def get_email(self) -> Optional[str]:
+        """Get decrypted email."""
+        if self.email:
+            return decrypt_data(self.email)
+        return None
 
 
 class UserMembership(BaseModel):
     """User membership in a business (multi-tenant)."""
 
-    __tablename__ = "user_memberships"
+    user_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    role: UserRoleEnum = Field(default=UserRoleEnum.STAFF)
+    is_active: bool = Field(default=True)
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    role = Column(SQLEnum(UserRoleEnum), default=UserRoleEnum.STAFF, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-
-    # Relationships
-    user = relationship("User", back_populates="memberships")
-    business = relationship("Business", back_populates="users")
-
-    __table_args__ = (UniqueConstraint("user_id", "business_id"),)
+    class Settings:
+        name = "user_memberships"
+        indexes = [
+            [("user_id", 1)],
+            [("business_id", 1)],
+            [("user_id", 1), ("business_id", 1)],  # Unique constraint
+        ]
 
 
 class UserRole(BaseModel):
     """User role permissions (for future RBAC)."""
 
-    __tablename__ = "user_roles"
+    membership_id: PydanticObjectId
+    permission: str  # e.g., "cash.view", "stock.edit"
 
-    membership_id = Column(Integer, ForeignKey("user_memberships.id", ondelete="CASCADE"), nullable=False)
-    permission = Column(String(100), nullable=False)  # e.g., "cash.view", "stock.edit"
-
-    __table_args__ = (UniqueConstraint("membership_id", "permission"),)
-
+    class Settings:
+        name = "user_roles"
+        indexes = [
+            [("membership_id", 1), ("permission", 1)],  # Unique constraint
+        ]

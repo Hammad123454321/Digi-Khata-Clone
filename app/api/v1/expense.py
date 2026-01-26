@@ -2,9 +2,7 @@
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
@@ -19,20 +17,30 @@ from app.services.expense import expense_service
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
 
+@router.get("/categories", response_model=List[ExpenseCategoryResponse])
+async def list_categories(
+    is_active: Optional[bool] = Query(None),
+    current_business: Business = Depends(get_current_business),
+):
+    """List expense categories."""
+    categories = await expense_service.list_categories(
+        business_id=str(current_business.id),
+        is_active=is_active,
+    )
+    return categories
+
+
 @router.post("/categories", response_model=ExpenseCategoryResponse, status_code=201)
 async def create_category(
     data: ExpenseCategoryCreate,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create an expense category."""
     category = await expense_service.create_category(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         name=data.name,
         description=data.description,
-        db=db,
     )
-    await db.commit()
     return category
 
 
@@ -41,20 +49,17 @@ async def create_expense(
     data: ExpenseCreate,
     current_business: Business = Depends(get_current_business),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create an expense."""
     expense = await expense_service.create_expense(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         amount=data.amount,
         date=data.date,
         payment_mode=data.payment_mode,
-        category_id=data.category_id,
+        category_id=str(data.category_id) if data.category_id else None,
         description=data.description,
-        user_id=current_user.id,
-        db=db,
+        user_id=str(current_user.id),
     )
-    await db.commit()
     return expense
 
 
@@ -62,23 +67,21 @@ async def create_expense(
 async def list_expenses(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    category_id: Optional[int] = Query(None),
+    category_id: Optional[str] = Query(None),
     payment_mode: Optional[str] = Query(None, pattern="^(cash|bank)$"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """List expenses."""
     expenses = await expense_service.list_expenses(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         start_date=start_date,
         end_date=end_date,
         category_id=category_id,
         payment_mode=payment_mode,
         limit=limit,
         offset=offset,
-        db=db,
     )
     return expenses
 
@@ -88,13 +91,10 @@ async def get_expense_summary(
     start_date: datetime = Query(...),
     end_date: datetime = Query(...),
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get expense summary."""
     return await expense_service.get_summary(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         start_date=start_date,
         end_date=end_date,
-        db=db,
     )
-

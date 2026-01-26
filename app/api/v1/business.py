@@ -1,9 +1,7 @@
 """Business endpoints."""
 from typing import List
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.api.dependencies import get_current_user, get_current_business, require_role
 from app.models.user import User
 from app.models.business import Business
@@ -17,38 +15,33 @@ router = APIRouter(prefix="/businesses", tags=["Businesses"])
 async def create_business(
     data: BusinessCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create a new business."""
     business = await business_service.create_business(
         name=data.name,
         phone=data.phone,
-        user_id=current_user.id,
+        user_id=str(current_user.id),
         email=data.email,
         address=data.address,
         language_preference=data.language_preference,
         max_devices=data.max_devices,
-        db=db,
     )
-    await db.commit()
     return business
 
 
 @router.get("", response_model=List[BusinessResponse])
 async def list_businesses(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     """List all businesses for current user."""
-    businesses = await business_service.list_user_businesses(current_user.id, db)
+    businesses = await business_service.list_user_businesses(str(current_user.id))
     return businesses
 
 
 @router.get("/{business_id}", response_model=BusinessResponse)
 async def get_business(
-    business_id: int,
+    business_id: str,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get business details."""
     return current_business
@@ -56,21 +49,17 @@ async def get_business(
 
 @router.patch("/{business_id}", response_model=BusinessResponse)
 async def update_business(
-    business_id: int,
+    business_id: str,
     data: BusinessUpdate,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Update business."""
     business = await business_service.update_business(
-        business_id=business_id,
+        business_id=str(current_business.id),
         name=data.name,
         email=data.email,
         address=data.address,
         language_preference=data.language_preference,
         max_devices=data.max_devices,
-        db=db,
     )
-    await db.commit()
     return business
-

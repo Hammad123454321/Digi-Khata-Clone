@@ -2,8 +2,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError
 from app.models.reminder import Reminder
@@ -19,70 +18,81 @@ class ReminderService:
 
     @staticmethod
     async def create_reminder(
-        business_id: int,
+        business_id: str,
         entity_type: str,
-        entity_id: int,
+        entity_id: str,
         amount: Decimal,
         due_date: Optional[datetime] = None,
         message: Optional[str] = None,
-        db: AsyncSession = None,
     ) -> Reminder:
         """Create a reminder."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            entity_obj_id = PydanticObjectId(entity_id)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid business or entity ID format")
+
         reminder = Reminder(
-            business_id=business_id,
+            business_id=business_obj_id,
             entity_type=entity_type,
-            entity_id=entity_id,
+            entity_id=entity_obj_id,
             amount=amount,
             due_date=due_date,
             message=message,
             is_sent=False,
             is_resolved=False,
         )
-        db.add(reminder)
-        await db.flush()
+        await reminder.insert()
 
         logger.info("reminder_created", business_id=business_id, entity_type=entity_type, entity_id=entity_id)
         return reminder
 
     @staticmethod
     async def list_reminders(
-        business_id: int,
+        business_id: str,
         entity_type: Optional[str] = None,
         is_resolved: Optional[bool] = None,
-        db: AsyncSession = None,
     ) -> list[Reminder]:
         """List reminders."""
-        query = select(Reminder).where(Reminder.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = Reminder.find(Reminder.business_id == business_obj_id)
 
         if entity_type:
-            query = query.where(Reminder.entity_type == entity_type)
+            query = query.find(Reminder.entity_type == entity_type)
         if is_resolved is not None:
-            query = query.where(Reminder.is_resolved == is_resolved)
+            query = query.find(Reminder.is_resolved == is_resolved)
 
-        query = query.order_by(Reminder.due_date.asc() if Reminder.due_date else Reminder.created_at.desc())
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        # Sort by due_date if available, else by created_at
+        reminders = await query.to_list()
+        reminders.sort(key=lambda r: (r.due_date or datetime.min.replace(tzinfo=timezone.utc), r.created_at))
+        
+        return reminders
 
     @staticmethod
-    async def resolve_reminder(reminder_id: int, business_id: int, db: AsyncSession) -> None:
+    async def resolve_reminder(reminder_id: str, business_id: str) -> None:
         """Resolve a reminder."""
-        result = await db.execute(
-            select(Reminder).where(
-                Reminder.id == reminder_id,
-                Reminder.business_id == business_id,
-            )
+        try:
+            reminder_obj_id = PydanticObjectId(reminder_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Reminder not found")
+
+        reminder = await Reminder.find_one(
+            Reminder.id == reminder_obj_id,
+            Reminder.business_id == business_obj_id,
         )
-        reminder = result.scalar_one_or_none()
 
         if not reminder:
             raise NotFoundError("Reminder not found")
 
         reminder.is_resolved = True
         reminder.resolved_at = datetime.now(timezone.utc)
-        await db.flush()
+        await reminder.save()
 
 
 # Singleton instance
 reminder_service = ReminderService()
-

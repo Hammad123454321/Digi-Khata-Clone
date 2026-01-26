@@ -1,54 +1,76 @@
 """Staff models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Text, DateTime, Boolean, Index
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class Staff(BaseModel):
     """Staff model."""
 
-    __tablename__ = "staff"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    name: Indexed(str, index_type=Index.ASCENDING)
+    phone: Optional[str] = Field(default=None)  # Encrypted phone
+    email: Optional[str] = Field(default=None)  # Encrypted email
+    role: Optional[str] = None
+    address: Optional[str] = None
+    is_active: bool = Field(default=True)
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    phone = Column(String(20), nullable=True, index=True)
-    email = Column(String(255), nullable=True)
-    role = Column(String(100), nullable=True)
-    address = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    class Settings:
+        name = "staff"
+        indexes = [
+            [("business_id", 1)],
+            [("name", 1)],
+            [("business_id", 1), ("name", 1)],
+            [("business_id", 1), ("is_active", 1)],
+        ]
 
-    # Relationships
-    business = relationship("Business", back_populates="staff")
-    salaries = relationship("StaffSalary", back_populates="staff", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("ix_staff_business_name", "business_id", "name"),
-        Index("ix_staff_business_active", "business_id", "is_active"),
-    )
+    def set_phone(self, phone: str) -> None:
+        """Set encrypted phone."""
+        if phone:
+            self.phone = encrypt_data(phone)
+    
+    def get_phone(self) -> Optional[str]:
+        """Get decrypted phone."""
+        if self.phone:
+            return decrypt_data(self.phone)
+        return None
+    
+    def set_email(self, email: str) -> None:
+        """Set encrypted email."""
+        if email:
+            self.email = encrypt_data(email)
+    
+    def get_email(self) -> Optional[str]:
+        """Get decrypted email."""
+        if self.email:
+            return decrypt_data(self.email)
+        return None
 
 
 class StaffSalary(BaseModel):
     """Staff salary record model."""
 
-    __tablename__ = "staff_salaries"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    staff_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    amount: Decimal
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    payment_mode: Indexed(str, index_type=Index.ASCENDING)  # cash, bank
+    remarks: Optional[str] = None
+    reference_id: Optional[PydanticObjectId] = None  # Reference to bank transaction, etc.
+    reference_type: Optional[str] = None
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    staff_id = Column(Integer, ForeignKey("staff.id", ondelete="CASCADE"), nullable=False, index=True)
-    amount = Column(Numeric(15, 2), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    payment_mode = Column(String(50), nullable=False, index=True)  # cash, bank
-    remarks = Column(Text, nullable=True)
-    reference_id = Column(Integer, nullable=True)  # Reference to bank transaction, etc.
-    reference_type = Column(String(50), nullable=True)
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    staff = relationship("Staff", back_populates="salaries")
-
-    __table_args__ = (
-        Index("ix_staff_salaries_business_staff_date", "business_id", "staff_id", "date"),
-        Index("ix_staff_salaries_business_date", "business_id", "date"),
-    )
-
+    class Settings:
+        name = "staff_salaries"
+        indexes = [
+            [("business_id", 1)],
+            [("staff_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("staff_id", 1), ("date", 1)],
+            [("business_id", 1), ("date", 1)],
+        ]

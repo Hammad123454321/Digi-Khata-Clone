@@ -1,8 +1,7 @@
 """Backup service."""
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError
 from app.models.backup import Backup
@@ -18,61 +17,67 @@ class BackupService:
 
     @staticmethod
     async def create_backup(
-        business_id: int,
+        business_id: str,
         backup_type: str = "manual",
-        db: AsyncSession = None,
     ) -> Backup:
         """Create a backup snapshot."""
         # TODO: Implement actual backup logic
         # This would:
-        # 1. Export all business data (JSON or SQL dump)
+        # 1. Export all business data (JSON or MongoDB dump)
         # 2. Upload to S3 or object storage
         # 3. Create backup record
+
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
 
         file_path = f"backups/{business_id}/{datetime.now(timezone.utc).isoformat()}.backup"
 
         backup = Backup(
-            business_id=business_id,
+            business_id=business_obj_id,
             backup_type=backup_type,
             file_path=file_path,
             status="completed",
             backup_date=datetime.now(timezone.utc),
         )
-        db.add(backup)
-        await db.flush()
+        await backup.insert()
 
-        logger.info("backup_created", business_id=business_id, backup_id=backup.id)
+        logger.info("backup_created", business_id=business_id, backup_id=str(backup.id))
         return backup
 
     @staticmethod
     async def list_backups(
-        business_id: int,
+        business_id: str,
         limit: int = 50,
-        db: AsyncSession = None,
     ) -> list[Backup]:
         """List backups for a business."""
-        result = await db.execute(
-            select(Backup)
-            .where(Backup.business_id == business_id)
-            .order_by(Backup.backup_date.desc())
-            .limit(limit)
-        )
-        return list(result.scalars().all())
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        backups = await Backup.find(
+            Backup.business_id == business_obj_id
+        ).sort("-backup_date").limit(limit).to_list()
+        return backups
 
     @staticmethod
     async def restore_backup(
-        backup_id: int,
-        business_id: int,
-        db: AsyncSession = None,
+        backup_id: str,
+        business_id: str,
     ) -> dict:
         """Restore from backup."""
-        result = await db.execute(
-            select(Backup).where(
-                Backup.id == backup_id,
-                Backup.business_id == business_id,
-            )
+        try:
+            backup_obj_id = PydanticObjectId(backup_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Backup not found")
+
+        backup = await Backup.find_one(
+            Backup.id == backup_obj_id,
+            Backup.business_id == business_obj_id,
         )
-        backup = result.scalar_one_or_none()
 
         if not backup:
             raise NotFoundError("Backup not found")
@@ -90,4 +95,3 @@ class BackupService:
 
 # Singleton instance
 backup_service = BackupService()
-

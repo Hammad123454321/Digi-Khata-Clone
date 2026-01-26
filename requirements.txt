@@ -6,10 +6,9 @@ pydantic-settings==2.1.0
 python-multipart==0.0.6
 
 # Database
-sqlalchemy==2.0.25
-alembic==1.13.1
-psycopg2-binary==2.9.9
-asyncpg==0.29.0
+motor==3.3.2
+beanie==1.23.6
+pymongo==4.6.1
 
 # Redis
 redis==5.0.1
@@ -20,13 +19,11 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 cryptography==42.0.0
 
-# HTTP Client for SendPK
+# HTTP Client for SendPK & Testing
 httpx==0.26.0
-aiohttp==3.9.1
 
 # PDF Generation
 reportlab==4.0.7
-weasyprint==60.2
 
 # Object Storage (S3-compatible)
 boto3==1.34.28
@@ -47,10 +44,16 @@ black==24.1.1
 ruff==0.1.11
 mypy==1.8.0
 
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+faker==22.0.0
+mongomock==4.1.2  # For in-memory MongoDB testing
+
 # Rate Limiting
 slowapi==0.1.9
 
-# Background Tasks
-celery==5.3.6
-flower==2.0.1
+# Task Scheduling
+apscheduler==3.10.4
 

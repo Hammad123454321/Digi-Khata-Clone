@@ -2,10 +2,10 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.validators import validate_positive_amount
 from app.models.staff import Staff, StaffSalary
 from app.core.logging import get_logger
 
@@ -17,37 +17,48 @@ class StaffService:
 
     @staticmethod
     async def create_staff(
-        business_id: int,
+        business_id: str,
         name: str,
         phone: Optional[str] = None,
         email: Optional[str] = None,
         role: Optional[str] = None,
         address: Optional[str] = None,
-        db: AsyncSession = None,
     ) -> Staff:
         """Create a new staff member."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         staff = Staff(
-            business_id=business_id,
+            business_id=business_obj_id,
             name=name,
-            phone=phone,
-            email=email,
             role=role,
             address=address,
             is_active=True,
         )
-        db.add(staff)
-        await db.flush()
+        if phone:
+            staff.set_phone(phone)
+        if email:
+            staff.set_email(email)
+        await staff.insert()
 
-        logger.info("staff_created", business_id=business_id, staff_id=staff.id, name=name)
+        logger.info("staff_created", business_id=business_id, staff_id=str(staff.id), name=name)
         return staff
 
     @staticmethod
-    async def get_staff(staff_id: int, business_id: int, db: AsyncSession) -> Staff:
+    async def get_staff(staff_id: str, business_id: str) -> Staff:
         """Get staff by ID."""
-        result = await db.execute(
-            select(Staff).where(Staff.id == staff_id, Staff.business_id == business_id)
+        try:
+            staff_obj_id = PydanticObjectId(staff_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Staff not found")
+
+        staff = await Staff.find_one(
+            Staff.id == staff_obj_id,
+            Staff.business_id == business_obj_id,
         )
-        staff = result.scalar_one_or_none()
 
         if not staff:
             raise NotFoundError("Staff not found")
@@ -56,48 +67,63 @@ class StaffService:
 
     @staticmethod
     async def list_staff(
-        business_id: int,
+        business_id: str,
         is_active: Optional[bool] = None,
         limit: int = 100,
         offset: int = 0,
-        db: AsyncSession = None,
     ) -> list[Staff]:
         """List staff."""
-        query = select(Staff).where(Staff.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = Staff.find(Staff.business_id == business_obj_id)
 
         if is_active is not None:
-            query = query.where(Staff.is_active == is_active)
+            query = query.find(Staff.is_active == is_active)
 
-        query = query.order_by(Staff.name).limit(limit).offset(offset)
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        staff_list = await query.sort("+name").skip(offset).limit(limit).to_list()
+        return staff_list
 
     @staticmethod
     async def record_salary(
-        business_id: int,
-        staff_id: int,
+        business_id: str,
+        staff_id: str,
         amount: Decimal,
         date: datetime,
         payment_mode: str,
         remarks: Optional[str] = None,
-        user_id: Optional[int] = None,
-        db: AsyncSession = None,
+        user_id: Optional[str] = None,
     ) -> StaffSalary:
         """Record staff salary."""
-        staff = await StaffService.get_staff(staff_id, business_id, db)
+        validate_positive_amount(amount, "salary amount")
+        
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            staff_obj_id = PydanticObjectId(staff_id)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid business or staff ID format")
+
+        staff = await StaffService.get_staff(staff_id, business_id)
+
+        user_obj_id = None
+        if user_id:
+            try:
+                user_obj_id = PydanticObjectId(user_id)
+            except (ValueError, TypeError):
+                pass
 
         salary = StaffSalary(
-            business_id=business_id,
-            staff_id=staff_id,
+            business_id=business_obj_id,
+            staff_id=staff_obj_id,
             amount=amount,
             date=date,
             payment_mode=payment_mode,
             remarks=remarks,
-            created_by_user_id=user_id,
+            created_by_user_id=user_obj_id,
         )
-        db.add(salary)
-        await db.flush()
+        await salary.insert()
 
         # Create cash transaction if payment mode is cash
         if payment_mode == "cash":
@@ -109,11 +135,39 @@ class StaffService:
                 date=date,
                 source="salary",
                 remarks=f"Salary: {staff.name}",
-                reference_id=salary.id,
+                reference_id=str(salary.id),
                 reference_type="salary",
                 user_id=user_id,
-                db=db,
             )
+        elif payment_mode == "bank":
+            # Create bank transaction for bank-paid salaries
+            from app.models.bank import BankAccount
+            from app.services.bank import bank_service
+            
+            # Get first active bank account for the business
+            bank_account = await BankAccount.find_one(
+                BankAccount.business_id == business_obj_id,
+                BankAccount.is_active == True,
+            )
+            
+            if bank_account:
+                await bank_service.create_transaction(
+                    business_id=business_id,
+                    bank_account_id=str(bank_account.id),
+                    transaction_type="withdrawal",
+                    amount=amount,
+                    date=date,
+                    remarks=remarks or f"Salary: {staff.name}",
+                    user_id=user_id,
+                )
+            else:
+                logger.warning(
+                    "salary_bank_no_account",
+                    business_id=business_id,
+                    staff_id=staff_id,
+                    salary_id=str(salary.id),
+                    message="Bank salary created but no active bank account found",
+                )
 
         logger.info("salary_recorded", business_id=business_id, staff_id=staff_id, amount=str(amount))
         return salary
@@ -121,4 +175,3 @@ class StaffService:
 
 # Singleton instance
 staff_service = StaffService()
-

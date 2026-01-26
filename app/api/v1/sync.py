@@ -1,9 +1,7 @@
 """Sync endpoints for multi-device synchronization."""
 from typing import List
 from fastapi import APIRouter, Depends, Header
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
@@ -25,16 +23,14 @@ async def pull_changes(
     request: SyncPullRequest,
     current_business: Business = Depends(get_current_business),
     x_device_id: str = Header(..., description="Device ID"),
-    db: AsyncSession = Depends(get_db),
 ):
     """Pull changes from server since last sync."""
     changes, next_cursor, has_more = await sync_service.pull_changes(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         device_id=x_device_id,
         cursor=request.cursor,
         entity_types=request.entity_types,
         limit=request.limit,
-        db=db,
     )
 
     # Get total count for reference
@@ -53,14 +49,12 @@ async def push_changes(
     request: SyncPushRequest,
     current_business: Business = Depends(get_current_business),
     x_device_id: str = Header(..., description="Device ID"),
-    db: AsyncSession = Depends(get_db),
 ):
     """Push local changes to server."""
     accepted, conflicts, rejected = await sync_service.push_changes(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         device_id=x_device_id,
         changes=request.changes,
-        db=db,
     )
 
     # Generate next cursor (current timestamp)
@@ -80,14 +74,11 @@ async def push_changes(
 async def get_sync_status(
     current_business: Business = Depends(get_current_business),
     x_device_id: str = Header(..., description="Device ID"),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get sync status for current device."""
     status = await sync_service.get_sync_status(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         device_id=x_device_id,
-        db=db,
     )
 
     return SyncStatusResponse(**status)
-

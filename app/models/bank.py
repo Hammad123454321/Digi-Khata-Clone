@@ -1,34 +1,56 @@
 """Bank account and transaction models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Text, DateTime, Boolean, Enum as SQLEnum, Index
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 import enum
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class BankAccount(BaseModel):
     """Bank account model."""
 
-    __tablename__ = "bank_accounts"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    bank_name: str
+    account_number: Optional[str] = Field(default=None)  # Encrypted account number
+    account_holder_name: Optional[str] = Field(default=None)  # Encrypted account holder name
+    branch: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    opening_balance: Decimal = Field(default=Decimal("0.00"))
+    current_balance: Decimal = Field(default=Decimal("0.00"))
+    is_active: bool = Field(default=True)
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    bank_name = Column(String(255), nullable=False)
-    account_number = Column(String(100), nullable=True)
-    account_holder_name = Column(String(255), nullable=True)
-    branch = Column(String(255), nullable=True)
-    ifsc_code = Column(String(50), nullable=True)
-    opening_balance = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    current_balance = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+    class Settings:
+        name = "bank_accounts"
+        indexes = [
+            [("business_id", 1)],
+            [("business_id", 1), ("is_active", 1)],
+        ]
 
-    # Relationships
-    business = relationship("Business", back_populates="bank_accounts")
-    transactions = relationship("BankTransaction", back_populates="bank_account", cascade="all, delete-orphan")
-    cash_transfers_from = relationship("CashBankTransfer", foreign_keys="CashBankTransfer.from_bank_account_id", back_populates="from_bank_account")
-    cash_transfers_to = relationship("CashBankTransfer", foreign_keys="CashBankTransfer.to_bank_account_id", back_populates="to_bank_account")
-
-    __table_args__ = (Index("ix_bank_accounts_business_active", "business_id", "is_active"),)
+    def set_account_number(self, account_number: str) -> None:
+        """Set encrypted account number."""
+        if account_number:
+            self.account_number = encrypt_data(account_number)
+    
+    def get_account_number(self) -> Optional[str]:
+        """Get decrypted account number."""
+        if self.account_number:
+            return decrypt_data(self.account_number)
+        return None
+    
+    def set_account_holder_name(self, name: str) -> None:
+        """Set encrypted account holder name."""
+        if name:
+            self.account_holder_name = encrypt_data(name)
+    
+    def get_account_holder_name(self) -> Optional[str]:
+        """Get decrypted account holder name."""
+        if self.account_holder_name:
+            return decrypt_data(self.account_holder_name)
+        return None
 
 
 class BankTransactionType(str, enum.Enum):
@@ -42,48 +64,45 @@ class BankTransactionType(str, enum.Enum):
 class BankTransaction(BaseModel):
     """Bank transaction model (ledger-style)."""
 
-    __tablename__ = "bank_transactions"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    bank_account_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    transaction_type: Indexed(BankTransactionType, index_type=Index.ASCENDING)
+    amount: Decimal
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None
+    reference_id: Optional[PydanticObjectId] = None  # Reference to expense, salary, etc.
+    reference_type: Optional[str] = None  # expense, salary, transfer, etc.
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    bank_account_id = Column(Integer, ForeignKey("bank_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    transaction_type = Column(SQLEnum(BankTransactionType), nullable=False, index=True)
-    amount = Column(Numeric(15, 2), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    reference_number = Column(String(100), nullable=True)
-    remarks = Column(Text, nullable=True)
-    reference_id = Column(Integer, nullable=True)  # Reference to expense, salary, etc.
-    reference_type = Column(String(50), nullable=True)  # expense, salary, transfer, etc.
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    bank_account = relationship("BankAccount", back_populates="transactions")
-
-    __table_args__ = (
-        Index("ix_bank_transactions_business_account_date", "business_id", "bank_account_id", "date"),
-        Index("ix_bank_transactions_business_type_date", "business_id", "transaction_type", "date"),
-    )
+    class Settings:
+        name = "bank_transactions"
+        indexes = [
+            [("business_id", 1)],
+            [("bank_account_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("bank_account_id", 1), ("date", 1)],
+            [("business_id", 1), ("transaction_type", 1), ("date", 1)],
+        ]
 
 
 class CashBankTransfer(BaseModel):
     """Cash to Bank or Bank to Cash transfer model."""
 
-    __tablename__ = "cash_bank_transfers"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    transfer_type: Indexed(str, index_type=Index.ASCENDING)  # cash_to_bank, bank_to_cash
+    amount: Decimal
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    from_bank_account_id: Optional[PydanticObjectId] = None
+    to_bank_account_id: Optional[PydanticObjectId] = None
+    remarks: Optional[str] = None
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    transfer_type = Column(String(50), nullable=False, index=True)  # cash_to_bank, bank_to_cash
-    amount = Column(Numeric(15, 2), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    from_bank_account_id = Column(Integer, ForeignKey("bank_accounts.id", ondelete="SET NULL"), nullable=True)
-    to_bank_account_id = Column(Integer, ForeignKey("bank_accounts.id", ondelete="SET NULL"), nullable=True)
-    remarks = Column(Text, nullable=True)
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    from_bank_account = relationship("BankAccount", foreign_keys=[from_bank_account_id], back_populates="cash_transfers_from")
-    to_bank_account = relationship("BankAccount", foreign_keys=[to_bank_account_id], back_populates="cash_transfers_to")
-
-    __table_args__ = (
-        Index("ix_cash_bank_transfers_business_date", "business_id", "date"),
-        Index("ix_cash_bank_transfers_business_type_date", "business_id", "transfer_type", "date"),
-    )
-
+    class Settings:
+        name = "cash_bank_transfers"
+        indexes = [
+            [("business_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("date", 1)],
+            [("business_id", 1), ("transfer_type", 1), ("date", 1)],
+        ]

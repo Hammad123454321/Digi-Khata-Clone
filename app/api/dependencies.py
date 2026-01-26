@@ -2,24 +2,21 @@
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Header, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from beanie import PydanticObjectId
 
-from app.core.database import get_db
-from app.core.security import verify_token
-from app.core.exceptions import AuthenticationError, AuthorizationError
+from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from app.models.user import User, UserMembership
 from app.models.business import Business
 from app.models.device import Device
 
 from app.core.logging import get_logger
+from app.core.security import verify_token
 
 logger = get_logger(__name__)
 
 
 async def get_current_user(
     authorization: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db),
 ) -> User:
     """Get current authenticated user from JWT token."""
     if not authorization:
@@ -40,10 +37,17 @@ async def get_current_user(
     if not user_id:
         raise AuthenticationError("Invalid token payload")
 
-    result = await db.execute(select(User).where(User.id == int(user_id), User.is_active == True))
-    user = result.scalar_one_or_none()
-
-    if not user:
+    # Try to find user by id (could be ObjectId string or int)
+    try:
+        from beanie import PydanticObjectId
+        user = await User.get(PydanticObjectId(user_id))
+    except (ValueError, TypeError):
+        # Fallback: if user_id is stored as int in token, query by a custom field
+        # For now, we'll need to update token generation to use ObjectId strings
+        # This is a temporary workaround - should use ObjectId in tokens
+        raise AuthenticationError("Invalid user ID format")
+    
+    if not user or not user.is_active:
         raise AuthenticationError("User not found or inactive")
 
     return user
@@ -51,31 +55,32 @@ async def get_current_user(
 
 async def get_current_business(
     current_user: User = Depends(get_current_user),
-    x_business_id: Optional[int] = Header(None),
-    db: AsyncSession = Depends(get_db),
+    x_business_id: Optional[str] = Header(None),
 ) -> Business:
     """Get current business context from header."""
     if not x_business_id:
         raise HTTPException(status_code=400, detail="X-Business-Id header required")
 
+    # Convert business_id to ObjectId
+    try:
+        from beanie import PydanticObjectId
+        business_obj_id = PydanticObjectId(x_business_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid business ID format")
+
     # Check if user has membership in this business
-    result = await db.execute(
-        select(UserMembership).where(
-            UserMembership.user_id == current_user.id,
-            UserMembership.business_id == x_business_id,
-            UserMembership.is_active == True,
-        )
+    membership = await UserMembership.find_one(
+        UserMembership.user_id == current_user.id,
+        UserMembership.business_id == business_obj_id,
+        UserMembership.is_active == True,
     )
-    membership = result.scalar_one_or_none()
 
     if not membership:
         raise AuthorizationError("User does not have access to this business")
 
     # Get business
-    result = await db.execute(select(Business).where(Business.id == x_business_id, Business.is_active == True))
-    business = result.scalar_one_or_none()
-
-    if not business:
+    business = await Business.get(business_obj_id)
+    if not business or not business.is_active:
         raise NotFoundError("Business not found or inactive")
 
     return business
@@ -85,21 +90,17 @@ async def get_current_device(
     current_user: User = Depends(get_current_user),
     current_business: Business = Depends(get_current_business),
     x_device_id: Optional[str] = Header(None),
-    db: AsyncSession = Depends(get_db),
 ) -> Optional[Device]:
     """Get current device from header (optional)."""
     if not x_device_id:
         return None
 
-    result = await db.execute(
-        select(Device).where(
-            Device.device_id == x_device_id,
-            Device.business_id == current_business.id,
-            Device.user_id == current_user.id,
-            Device.is_active == True,
-        )
+    device = await Device.find_one(
+        Device.device_id == x_device_id,
+        Device.business_id == current_business.id,
+        Device.user_id == current_user.id,
+        Device.is_active == True,
     )
-    device = result.scalar_one_or_none()
 
     return device
 
@@ -110,17 +111,13 @@ def require_role(required_role: str):
     async def role_checker(
         current_user: User = Depends(get_current_user),
         current_business: Business = Depends(get_current_business),
-        db: AsyncSession = Depends(get_db),
     ):
         """Check if user has required role in business."""
-        result = await db.execute(
-            select(UserMembership).where(
-                UserMembership.user_id == current_user.id,
-                UserMembership.business_id == current_business.id,
-                UserMembership.is_active == True,
-            )
+        membership = await UserMembership.find_one(
+            UserMembership.user_id == current_user.id,
+            UserMembership.business_id == current_business.id,
+            UserMembership.is_active == True,
         )
-        membership = result.scalar_one_or_none()
 
         if not membership:
             raise AuthorizationError("User does not have access to this business")
@@ -136,4 +133,3 @@ def require_role(required_role: str):
         return membership
 
     return role_checker
-

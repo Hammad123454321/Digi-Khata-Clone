@@ -1,7 +1,9 @@
 """Sync change log model for multi-device synchronization."""
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, DateTime, JSON, Index, Enum as SQLEnum
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional, Any
 import enum
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
 
@@ -17,21 +19,25 @@ class SyncAction(str, enum.Enum):
 class SyncChangeLog(BaseModel):
     """Change log for tracking entity modifications for sync."""
 
-    __tablename__ = "sync_change_logs"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    device_id: Optional[Indexed(str, index_type=Index.ASCENDING)] = None  # Device that made the change (null for server changes)
+    entity_type: Indexed(str, index_type=Index.ASCENDING)  # cash_transaction, item, invoice, customer, etc.
+    entity_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    action: Indexed(SyncAction, index_type=Index.ASCENDING)
+    data: Optional[dict[str, Any]] = None  # Snapshot of entity data at time of change
+    sync_timestamp: Indexed(datetime, index_type=Index.ASCENDING)  # When change occurred
+    synced_devices: Optional[list[str]] = None  # List of device_ids that have synced this change
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    device_id = Column(String(255), nullable=True, index=True)  # Device that made the change (null for server changes)
-    entity_type = Column(String(50), nullable=False, index=True)  # cash_transaction, item, invoice, customer, etc.
-    entity_id = Column(Integer, nullable=False, index=True)
-    action = Column(SQLEnum(SyncAction), nullable=False, index=True)
-    data = Column(JSON, nullable=True)  # Snapshot of entity data at time of change
-    sync_timestamp = Column(DateTime(timezone=True), nullable=False, index=True)  # When change occurred
-    synced_devices = Column(JSON, nullable=True)  # List of device_ids that have synced this change
-
-    __table_args__ = (
-        Index("ix_sync_change_logs_business_timestamp", "business_id", "sync_timestamp"),
-        Index("ix_sync_change_logs_business_entity", "business_id", "entity_type", "entity_id"),
-        Index("ix_sync_change_logs_business_device", "business_id", "device_id"),
-        Index("ix_sync_change_logs_entity", "entity_type", "entity_id", "sync_timestamp"),
-    )
-
+    class Settings:
+        name = "sync_change_logs"
+        indexes = [
+            [("business_id", 1)],
+            [("sync_timestamp", 1)],
+            [("entity_type", 1)],
+            [("entity_id", 1)],
+            [("device_id", 1)],
+            [("business_id", 1), ("sync_timestamp", 1)],
+            [("business_id", 1), ("entity_type", 1), ("entity_id", 1)],
+            [("business_id", 1), ("device_id", 1)],
+            [("entity_type", 1), ("entity_id", 1), ("sync_timestamp", 1)],
+        ]

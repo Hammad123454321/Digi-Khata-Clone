@@ -2,10 +2,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
 from app.core.security import (
     generate_otp,
     create_access_token,
@@ -30,7 +26,7 @@ class AuthService:
     """Authentication service."""
 
     @staticmethod
-    async def request_otp(phone: str, db: AsyncSession) -> Dict[str, Any]:
+    async def request_otp(phone: str) -> Dict[str, Any]:
         """Request OTP for phone number."""
         # Normalize phone number
         phone = phone.strip().replace(" ", "").replace("-", "")
@@ -63,7 +59,7 @@ class AuthService:
         return {"message": "OTP sent successfully", "expires_in_minutes": settings.OTP_EXPIRE_MINUTES}
 
     @staticmethod
-    async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str], db: AsyncSession) -> Dict[str, Any]:
+    async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str]) -> Dict[str, Any]:
         """Verify OTP and return tokens."""
         phone = phone.strip().replace(" ", "").replace("-", "")
 
@@ -79,29 +75,32 @@ class AuthService:
         await redis.delete(otp_key)
 
         # Get or create user
-        result = await db.execute(select(User).where(User.phone == phone))
-        user = result.scalar_one_or_none()
+        user = await User.find_one(User.phone == phone)
 
         if not user:
             # Create new user
             user = User(phone=phone, is_active=True)
-            db.add(user)
-            await db.flush()
-            logger.info("user_created", user_id=user.id, phone=phone)
+            await user.insert()
+            logger.info("user_created", user_id=str(user.id), phone=phone)
 
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
-        await db.flush()
+        await user.save()
 
         # Get user's businesses
-        result = await db.execute(
-            select(UserMembership)
-            .where(UserMembership.user_id == user.id, UserMembership.is_active == True)
-            .options(selectinload(UserMembership.business))
-        )
-        memberships = result.scalars().all()
+        memberships = await UserMembership.find(
+            UserMembership.user_id == user.id,
+            UserMembership.is_active == True,
+        ).to_list()
 
-        # Create tokens
+        # Load businesses for memberships
+        businesses = []
+        for membership in memberships:
+            business = await Business.get(membership.business_id)
+            if business:
+                businesses.append(business)
+
+        # Create tokens - use string id for ObjectId compatibility
         access_token = create_access_token(data={"sub": str(user.id), "phone": user.phone})
         refresh_token = create_refresh_token(data={"sub": str(user.id), "phone": user.phone})
 
@@ -116,26 +115,27 @@ class AuthService:
             from app.core.security import generate_device_token
 
             # Get first business for device registration (user can add more later)
-            if memberships:
-                business = memberships[0].business
+            if businesses:
+                business = businesses[0]
                 # Check device limit
-                device_count_result = await db.execute(
-                    select(Device).where(Device.business_id == business.id, Device.is_active == True)
-                )
-                device_count = len(device_count_result.scalars().all())
+                device_count = await Device.find(
+                    Device.business_id == business.id,
+                    Device.is_active == True,
+                ).count()
 
                 if device_count >= business.max_devices:
                     raise BusinessLogicError(f"Maximum device limit ({business.max_devices}) reached for this business")
 
                 # Check if device already exists
-                device_result = await db.execute(
-                    select(Device).where(Device.device_id == device_id, Device.business_id == business.id)
+                device = await Device.find_one(
+                    Device.device_id == device_id,
+                    Device.business_id == business.id,
                 )
-                device = device_result.scalar_one_or_none()
 
                 if device:
                     device.is_active = True
                     device.last_sync_at = datetime.now(timezone.utc)
+                    await device.save()
                 else:
                     device = Device(
                         business_id=business.id,
@@ -145,36 +145,35 @@ class AuthService:
                         is_active=True,
                         last_sync_at=datetime.now(timezone.utc),
                     )
-                    db.add(device)
+                    await device.insert()
 
-                await db.flush()
                 device_info = {"device_id": device.device_id, "business_id": business.id}
 
-        logger.info("user_authenticated", user_id=user.id, phone=phone)
+        logger.info("user_authenticated", user_id=str(user.id), phone=phone)
 
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "token_type": "bearer",
             "user": {
-                "id": user.id,
+                "id": str(user.id),
                 "phone": user.phone,
                 "name": user.name,
-                "email": user.email,
+                "email": user.get_email() if hasattr(user, 'get_email') else user.email,
             },
             "businesses": [
                 {
-                    "id": m.business.id,
-                    "name": m.business.name,
-                    "role": m.role.value,
+                    "id": str(business.id),
+                    "name": business.name,
+                    "role": next((m.role.value for m in memberships if m.business_id == business.id), "staff"),
                 }
-                for m in memberships
+                for business in businesses
             ],
             "device": device_info,
         }
 
     @staticmethod
-    async def refresh_access_token(refresh_token: str, db: AsyncSession) -> Dict[str, Any]:
+    async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
         """Refresh access token using refresh token."""
         payload = verify_token(refresh_token, token_type="refresh")
         if not payload:
@@ -192,11 +191,15 @@ class AuthService:
         if not stored_token or stored_token != refresh_token:
             raise AuthenticationError("Invalid refresh token")
 
-        # Get user
-        result = await db.execute(select(User).where(User.id == int(user_id), User.is_active == True))
-        user = result.scalar_one_or_none()
+        # Get user - try ObjectId first, then fallback
+        try:
+            from beanie import PydanticObjectId
+            user = await User.get(PydanticObjectId(user_id))
+        except (ValueError, TypeError):
+            # Fallback for int IDs if needed
+            user = await User.find_one(User.id == int(user_id), User.is_active == True)
 
-        if not user:
+        if not user or not user.is_active:
             raise AuthenticationError("User not found or inactive")
 
         # Create new access token
@@ -208,26 +211,32 @@ class AuthService:
         }
 
     @staticmethod
-    async def set_pin(user_id: int, pin: str, db: AsyncSession) -> Dict[str, Any]:
+    async def set_pin(user_id: str, pin: str) -> Dict[str, Any]:
         """Set PIN for user."""
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
+        try:
+            from beanie import PydanticObjectId
+            user = await User.get(PydanticObjectId(user_id))
+        except (ValueError, TypeError):
+            user = await User.find_one(User.id == int(user_id))
 
         if not user:
             raise NotFoundError("User not found")
 
         user.pin_hash = get_password_hash(pin)
-        await db.flush()
+        await user.save()
 
         logger.info("pin_set", user_id=user_id)
 
         return {"message": "PIN set successfully"}
 
     @staticmethod
-    async def verify_pin(user_id: int, pin: str, db: AsyncSession) -> bool:
+    async def verify_pin(user_id: str, pin: str) -> bool:
         """Verify PIN for user."""
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
+        try:
+            from beanie import PydanticObjectId
+            user = await User.get(PydanticObjectId(user_id))
+        except (ValueError, TypeError):
+            user = await User.find_one(User.id == int(user_id))
 
         if not user or not user.pin_hash:
             return False
@@ -237,4 +246,3 @@ class AuthService:
 
 # Singleton instance
 auth_service = AuthService()
-

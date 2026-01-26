@@ -1,6 +1,6 @@
 """Supplier schemas."""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from decimal import Decimal
 from pydantic import BaseModel, Field
 
@@ -32,8 +32,23 @@ class SupplierResponse(BaseModel):
 class SupplierPaymentCreate(BaseModel):
     """Supplier payment creation schema."""
 
-    supplier_id: int
-    amount: Decimal = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0, description="Payment amount must be positive")
     date: datetime
     remarks: Optional[str] = None
 
+
+class SupplierPurchaseItem(BaseModel):
+    """Supplier purchase item schema."""
+
+    item_id: int = Field(..., gt=0, description="Item ID must be positive")
+    quantity: Decimal = Field(..., gt=0, description="Quantity must be positive")
+    unit_price: Optional[Decimal] = Field(None, gt=0, description="Unit price must be positive if provided")
+
+
+class SupplierPurchaseCreate(BaseModel):
+    """Supplier purchase creation schema."""
+
+    amount: Decimal = Field(..., gt=0, description="Purchase amount must be positive")
+    date: datetime
+    items: Optional[List[SupplierPurchaseItem]] = Field(None, description="List of items purchased")
+    remarks: Optional[str] = None

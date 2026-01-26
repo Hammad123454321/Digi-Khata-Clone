@@ -2,10 +2,10 @@
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.validators import validate_positive_amount
 from app.models.cash import CashTransaction, CashBalance, CashTransactionType
 from app.core.logging import get_logger
 
@@ -17,39 +17,58 @@ class CashService:
 
     @staticmethod
     async def create_transaction(
-        business_id: int,
+        business_id: str,
         transaction_type: str,
         amount: Decimal,
         date: datetime,
         source: Optional[str] = None,
         remarks: Optional[str] = None,
-        reference_id: Optional[int] = None,
+        reference_id: Optional[str] = None,
         reference_type: Optional[str] = None,
-        user_id: Optional[int] = None,
-        db: AsyncSession = None,
+        user_id: Optional[str] = None,
     ) -> CashTransaction:
         """Create a cash transaction."""
+        validate_positive_amount(amount, "transaction amount")
+        
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        user_obj_id = None
+        if user_id:
+            try:
+                user_obj_id = PydanticObjectId(user_id)
+            except (ValueError, TypeError):
+                pass
+
+        ref_obj_id = None
+        if reference_id:
+            try:
+                ref_obj_id = PydanticObjectId(reference_id)
+            except (ValueError, TypeError):
+                pass
+
         transaction = CashTransaction(
-            business_id=business_id,
+            business_id=business_obj_id,
             transaction_type=CashTransactionType(transaction_type),
             amount=amount,
             date=date,
             source=source,
             remarks=remarks,
-            reference_id=reference_id,
+            reference_id=ref_obj_id,
             reference_type=reference_type,
-            created_by_user_id=user_id,
+            created_by_user_id=user_obj_id,
         )
-        db.add(transaction)
-        await db.flush()
+        await transaction.insert()
 
         # Update daily balance
-        await CashService._update_daily_balance(business_id, date.date(), db)
+        await CashService._update_daily_balance(business_id, date.date())
 
         logger.info(
             "cash_transaction_created",
             business_id=business_id,
-            transaction_id=transaction.id,
+            transaction_id=str(transaction.id),
             transaction_type=transaction_type,
             amount=str(amount),
         )
@@ -57,112 +76,107 @@ class CashService:
         return transaction
 
     @staticmethod
-    async def _update_daily_balance(business_id: int, balance_date: date, db: AsyncSession) -> None:
+    async def _update_daily_balance(business_id: str, balance_date: date) -> None:
         """Update or create daily cash balance."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         start_of_day = datetime.combine(balance_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_of_day = datetime.combine(balance_date, datetime.max.time()).replace(tzinfo=timezone.utc)
 
         # Get opening balance (previous day's closing balance)
         prev_day_start = start_of_day - timedelta(days=1)
-        prev_balance_result = await db.execute(
-            select(CashBalance).where(
-                CashBalance.business_id == business_id,
-                CashBalance.date == prev_day_start,
-            )
+        prev_balance = await CashBalance.find_one(
+            CashBalance.business_id == business_obj_id,
+            CashBalance.date == prev_day_start,
         )
-        prev_balance = prev_balance_result.scalar_one_or_none()
         opening_balance = prev_balance.closing_balance if prev_balance else Decimal("0.00")
 
         # Calculate totals for the day
-        cash_in_result = await db.execute(
-            select(func.sum(CashTransaction.amount)).where(
-                CashTransaction.business_id == business_id,
-                CashTransaction.transaction_type == CashTransactionType.CASH_IN,
-                CashTransaction.date >= start_of_day,
-                CashTransaction.date <= end_of_day,
-            )
-        )
-        total_cash_in = cash_in_result.scalar_one() or Decimal("0.00")
+        cash_in_transactions = await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.transaction_type == CashTransactionType.CASH_IN,
+            CashTransaction.date >= start_of_day,
+            CashTransaction.date <= end_of_day,
+        ).to_list()
+        total_cash_in = sum(t.amount for t in cash_in_transactions) or Decimal("0.00")
 
-        cash_out_result = await db.execute(
-            select(func.sum(CashTransaction.amount)).where(
-                CashTransaction.business_id == business_id,
-                CashTransaction.transaction_type == CashTransactionType.CASH_OUT,
-                CashTransaction.date >= start_of_day,
-                CashTransaction.date <= end_of_day,
-            )
-        )
-        total_cash_out = cash_out_result.scalar_one() or Decimal("0.00")
+        cash_out_transactions = await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.transaction_type == CashTransactionType.CASH_OUT,
+            CashTransaction.date >= start_of_day,
+            CashTransaction.date <= end_of_day,
+        ).to_list()
+        total_cash_out = sum(t.amount for t in cash_out_transactions) or Decimal("0.00")
 
         closing_balance = opening_balance + total_cash_in - total_cash_out
 
-        # Update or create balance - use start_of_day datetime for comparison and storage
-        balance_result = await db.execute(
-            select(CashBalance).where(
-                CashBalance.business_id == business_id,
-                CashBalance.date == start_of_day,
-            )
+        # Update or create balance
+        balance = await CashBalance.find_one(
+            CashBalance.business_id == business_obj_id,
+            CashBalance.date == start_of_day,
         )
-        balance = balance_result.scalar_one_or_none()
 
         if balance:
             balance.opening_balance = opening_balance
             balance.total_cash_in = total_cash_in
             balance.total_cash_out = total_cash_out
             balance.closing_balance = closing_balance
+            await balance.save()
         else:
             balance = CashBalance(
-                business_id=business_id,
+                business_id=business_obj_id,
                 date=start_of_day,
                 opening_balance=opening_balance,
                 total_cash_in=total_cash_in,
                 total_cash_out=total_cash_out,
                 closing_balance=closing_balance,
             )
-            db.add(balance)
-
-        await db.flush()
+            await balance.insert()
 
     @staticmethod
-    async def get_daily_balance(business_id: int, balance_date: date, db: AsyncSession) -> Optional[CashBalance]:
+    async def get_daily_balance(business_id: str, balance_date: date) -> Optional[CashBalance]:
         """Get daily cash balance."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         start_of_day = datetime.combine(balance_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-        result = await db.execute(
-            select(CashBalance).where(
-                CashBalance.business_id == business_id,
-                CashBalance.date == start_of_day,
-            )
+        balance = await CashBalance.find_one(
+            CashBalance.business_id == business_obj_id,
+            CashBalance.date == start_of_day,
         )
-        return result.scalar_one_or_none()
+        return balance
 
     @staticmethod
     async def get_summary(
-        business_id: int,
+        business_id: str,
         start_date: datetime,
         end_date: datetime,
-        db: AsyncSession,
     ) -> dict:
         """Get cash summary for date range."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         # Get opening balance (from previous day's closing balance)
         prev_day_start = datetime.combine((start_date - timedelta(days=1)).date(), datetime.min.time()).replace(tzinfo=timezone.utc)
-        prev_balance_result = await db.execute(
-            select(CashBalance).where(
-                CashBalance.business_id == business_id,
-                CashBalance.date == prev_day_start,
-            )
+        prev_balance = await CashBalance.find_one(
+            CashBalance.business_id == business_obj_id,
+            CashBalance.date == prev_day_start,
         )
-        prev_balance = prev_balance_result.scalar_one_or_none()
         opening_balance = prev_balance.closing_balance if prev_balance else Decimal("0.00")
 
         # Get transactions in range
-        transactions_result = await db.execute(
-            select(CashTransaction).where(
-                CashTransaction.business_id == business_id,
-                CashTransaction.date >= start_date,
-                CashTransaction.date <= end_date,
-            ).order_by(CashTransaction.date)
-        )
-        transactions = transactions_result.scalars().all()
+        transactions = await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.date >= start_date,
+            CashTransaction.date <= end_date,
+        ).sort("+date").to_list()
 
         # Calculate totals
         total_cash_in = sum(t.amount for t in transactions if t.transaction_type == CashTransactionType.CASH_IN)
@@ -176,35 +190,36 @@ class CashService:
             "total_cash_in": total_cash_in,
             "total_cash_out": total_cash_out,
             "closing_balance": closing_balance,
-            "transactions": list(transactions),
+            "transactions": transactions,
         }
 
     @staticmethod
     async def list_transactions(
-        business_id: int,
+        business_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         transaction_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
-        db: AsyncSession = None,
     ) -> list[CashTransaction]:
         """List cash transactions."""
-        query = select(CashTransaction).where(CashTransaction.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = CashTransaction.find(CashTransaction.business_id == business_obj_id)
 
         if start_date:
-            query = query.where(CashTransaction.date >= start_date)
+            query = query.find(CashTransaction.date >= start_date)
         if end_date:
-            query = query.where(CashTransaction.date <= end_date)
+            query = query.find(CashTransaction.date <= end_date)
         if transaction_type:
-            query = query.where(CashTransaction.transaction_type == CashTransactionType(transaction_type))
+            query = query.find(CashTransaction.transaction_type == CashTransactionType(transaction_type))
 
-        query = query.order_by(CashTransaction.date.desc()).limit(limit).offset(offset)
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        transactions = await query.sort("-date").skip(offset).limit(limit).to_list()
+        return transactions
 
 
 # Singleton instance
 cash_service = CashService()
-

@@ -42,9 +42,9 @@ class CustomerResponse(BaseModel):
 class CustomerPaymentCreate(BaseModel):
     """Customer payment creation schema."""
 
-    customer_id: int
-    amount: Decimal = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=0, description="Payment amount must be positive")
     date: datetime
+    invoice_id: Optional[int] = Field(None, description="Optional invoice ID to link payment to specific invoice")
     remarks: Optional[str] = None
 
 

@@ -1,34 +1,28 @@
-"""Base model classes."""
+"""Base model classes for Beanie."""
 from datetime import datetime, timezone
-from typing import Any
-
-from sqlalchemy import Column, DateTime, Integer
-from sqlalchemy.ext.declarative import declared_attr
-
-from app.core.database import Base
+from beanie import Document
+from pydantic import Field
+from typing import Optional
 
 
 class TimestampMixin:
     """Mixin for timestamp fields."""
-
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
+    
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Creation timestamp"
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Last update timestamp"
     )
 
 
-class BaseModel(Base, TimestampMixin):
+class BaseModel(Document, TimestampMixin):
     """Base model with common fields."""
-
-    __abstract__ = True
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    @declared_attr
-    def __tablename__(cls) -> str:
-        """Generate table name from class name."""
-        return cls.__name__.lower() + "s"
-
+    
+    class Settings:
+        """Beanie document settings."""
+        use_cache = True
+        cache_expiration_time = 3600
+        validate_on_save = True

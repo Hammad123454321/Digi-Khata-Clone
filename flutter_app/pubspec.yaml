@@ -46,31 +46,44 @@ dependencies:
   reactive_forms: ^16.1.1
 
   # Date & Time
-  intl: ^0.18.1
+  intl: ^0.20.2
   timeago: ^3.6.1
+  
+  # Localization
+  flutter_localizations:
+    sdk: flutter
+  intl_utils: ^2.8.0
 
   # PDF & File Handling
   pdf: ^3.10.7
   printing: ^5.12.0
-  file_picker: ^6.1.1
+  file_picker: ^8.1.2
   path: ^1.8.3
 
   # Device Info
   device_info_plus: ^9.1.1
-  package_info_plus: ^5.0.1
+  package_info_plus: ^9.0.0
   uuid: ^4.2.1
 
   # QR Code
   qr_flutter: ^4.1.0
-  qr_code_scanner: ^1.0.1
+  mobile_scanner: ^5.2.3
+  
+  # Sharing
+  share_plus: ^7.2.1
+  url_launcher: ^6.2.2
+  
+  # Biometric & Security
+  local_auth: ^2.1.6
+  crypto: ^3.0.3
 
   # Utils
   logger: ^2.0.2+1
   dartz: ^0.10.1
   collection: ^1.18.0
 
-  # Error Tracking (Optional - for production)
-  # sentry_flutter: ^7.8.0
+  # Error Tracking (for production)
+  # sentry_flutter: ^8.0.0  # Temporarily disabled due to Kotlin compatibility issues
 
   # Testing
   mockito: ^5.4.4

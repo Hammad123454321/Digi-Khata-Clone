@@ -1,8 +1,7 @@
 """Device service."""
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError, BusinessLogicError, AuthenticationError
 from app.models.device import Device
@@ -18,21 +17,23 @@ class DeviceService:
     """Device management service."""
 
     @staticmethod
-    async def generate_pairing_token(business_id: int, user_id: int, db: AsyncSession) -> dict:
+    async def generate_pairing_token(business_id: str, user_id: str) -> dict:
         """Generate QR code pairing token."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            user_obj_id = PydanticObjectId(user_id)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid business or user ID format")
+
         # Check device limit
-        device_count_result = await db.execute(
-            select(func.count(Device.id)).where(
-                Device.business_id == business_id,
-                Device.is_active == True,
-            )
-        )
-        device_count = device_count_result.scalar_one() or 0
+        device_count = await Device.find(
+            Device.business_id == business_obj_id,
+            Device.is_active == True,
+        ).count()
 
         # Get business max_devices
         from app.models.business import Business
-        business_result = await db.execute(select(Business).where(Business.id == business_id))
-        business = business_result.scalar_one_or_none()
+        business = await Business.get(business_obj_id)
         max_devices = business.max_devices if business else settings.MAX_DEVICES_PER_BUSINESS
 
         if device_count >= max_devices:
@@ -58,13 +59,12 @@ class DeviceService:
 
     @staticmethod
     async def pair_device(
-        business_id: int,
-        user_id: int,
+        business_id: str,
+        user_id: str,
         device_id: str,
         pairing_token: str,
         device_name: Optional[str] = None,
         device_type: Optional[str] = None,
-        db: AsyncSession = None,
     ) -> Device:
         """Pair a device using QR code token."""
         # Verify token
@@ -78,43 +78,43 @@ class DeviceService:
 
         # Parse token data
         stored_business_id, stored_user_id = token_data.split(":")
-        if int(stored_business_id) != business_id or int(stored_user_id) != user_id:
+        if stored_business_id != business_id or stored_user_id != user_id:
             raise AuthenticationError("Pairing token does not match business/user")
 
         # Delete token after use
         await redis.delete(token_key)
 
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            user_obj_id = PydanticObjectId(user_id)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid business or user ID format")
+
         # Check if device already exists
-        result = await db.execute(
-            select(Device).where(
-                Device.device_id == device_id,
-                Device.business_id == business_id,
-            )
+        device = await Device.find_one(
+            Device.device_id == device_id,
+            Device.business_id == business_obj_id,
         )
-        device = result.scalar_one_or_none()
 
         if device:
             # Reactivate existing device
             device.is_active = True
             device.last_sync_at = datetime.now(timezone.utc)
-            device.user_id = user_id
+            device.user_id = user_obj_id
             if device_name:
                 device.device_name = device_name
             if device_type:
                 device.device_type = device_type
+            await device.save()
         else:
             # Check device limit
-            device_count_result = await db.execute(
-                select(func.count(Device.id)).where(
-                    Device.business_id == business_id,
-                    Device.is_active == True,
-                )
-            )
-            device_count = device_count_result.scalar_one() or 0
+            device_count = await Device.find(
+                Device.business_id == business_obj_id,
+                Device.is_active == True,
+            ).count()
 
             from app.models.business import Business
-            business_result = await db.execute(select(Business).where(Business.id == business_id))
-            business = business_result.scalar_one_or_none()
+            business = await Business.get(business_obj_id)
             max_devices = business.max_devices if business else settings.MAX_DEVICES_PER_BUSINESS
 
             if device_count >= max_devices:
@@ -122,52 +122,55 @@ class DeviceService:
 
             # Create new device
             device = Device(
-                business_id=business_id,
-                user_id=user_id,
+                business_id=business_obj_id,
+                user_id=user_obj_id,
                 device_id=device_id,
                 device_name=device_name or "Unknown Device",
                 device_type=device_type or "android",
                 is_active=True,
                 last_sync_at=datetime.now(timezone.utc),
             )
-            db.add(device)
-
-        await db.flush()
+            await device.insert()
 
         logger.info("device_paired", business_id=business_id, user_id=user_id, device_id=device_id)
         return device
 
     @staticmethod
-    async def list_devices(business_id: int, db: AsyncSession) -> list[Device]:
+    async def list_devices(business_id: str) -> list[Device]:
         """List all devices for a business."""
-        result = await db.execute(
-            select(Device).where(
-                Device.business_id == business_id,
-                Device.is_active == True,
-            ).order_by(Device.last_sync_at.desc())
-        )
-        return list(result.scalars().all())
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        devices = await Device.find(
+            Device.business_id == business_obj_id,
+            Device.is_active == True,
+        ).sort("-last_sync_at").to_list()
+        return devices
 
     @staticmethod
-    async def revoke_device(device_id: int, business_id: int, db: AsyncSession) -> None:
+    async def revoke_device(device_id: str, business_id: str) -> None:
         """Revoke a device (immediate effect)."""
-        result = await db.execute(
-            select(Device).where(
-                Device.id == device_id,
-                Device.business_id == business_id,
-            )
+        try:
+            device_obj_id = PydanticObjectId(device_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Device not found")
+
+        device = await Device.find_one(
+            Device.id == device_obj_id,
+            Device.business_id == business_obj_id,
         )
-        device = result.scalar_one_or_none()
 
         if not device:
             raise NotFoundError("Device not found")
 
         device.is_active = False
-        await db.flush()
+        await device.save()
 
         logger.info("device_revoked", business_id=business_id, device_id=device_id)
 
 
 # Singleton instance
 device_service = DeviceService()
-

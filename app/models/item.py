@@ -1,8 +1,10 @@
 """Item and inventory models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Boolean, Text, Enum as SQLEnum, DateTime, Index
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 import enum
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
 
@@ -21,31 +23,27 @@ class ItemUnit(str, enum.Enum):
 class Item(BaseModel):
     """Item/Product model."""
 
-    __tablename__ = "items"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    name: Indexed(str, index_type=Index.ASCENDING)
+    sku: Optional[Indexed(str, index_type=Index.ASCENDING)] = None
+    barcode: Optional[Indexed(str, index_type=Index.ASCENDING)] = None
+    purchase_price: Decimal
+    sale_price: Decimal
+    unit: ItemUnit = Field(default=ItemUnit.PIECE)
+    opening_stock: Decimal = Field(default=Decimal("0.000"))
+    current_stock: Indexed(Decimal, index_type=Index.ASCENDING)
+    min_stock_threshold: Optional[Decimal] = None  # For low stock alerts
+    is_active: bool = Field(default=True)
+    description: Optional[str] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    sku = Column(String(100), nullable=True, index=True)
-    barcode = Column(String(100), nullable=True, index=True)
-    purchase_price = Column(Numeric(15, 2), nullable=False)
-    sale_price = Column(Numeric(15, 2), nullable=False)
-    unit = Column(SQLEnum(ItemUnit), default=ItemUnit.PIECE, nullable=False)
-    opening_stock = Column(Numeric(15, 3), default=Decimal("0.000"), nullable=False)
-    current_stock = Column(Numeric(15, 3), default=Decimal("0.000"), nullable=False, index=True)
-    min_stock_threshold = Column(Numeric(15, 3), nullable=True)  # For low stock alerts
-    is_active = Column(Boolean, default=True, nullable=False)
-    description = Column(Text, nullable=True)
-
-    # Relationships
-    business = relationship("Business", back_populates="items")
-    inventory_transactions = relationship("InventoryTransaction", back_populates="item", cascade="all, delete-orphan")
-    invoice_items = relationship("InvoiceItem", back_populates="item")
-    low_stock_alerts = relationship("LowStockAlert", back_populates="item", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("ix_items_business_name", "business_id", "name"),
-        Index("ix_items_business_active", "business_id", "is_active"),
-    )
+    class Settings:
+        name = "items"
+        indexes = [
+            [("business_id", 1)],
+            [("name", 1)],
+            [("business_id", 1), ("name", 1)],
+            [("business_id", 1), ("is_active", 1)],
+        ]
 
 
 class InventoryTransactionType(str, enum.Enum):
@@ -60,42 +58,42 @@ class InventoryTransactionType(str, enum.Enum):
 class InventoryTransaction(BaseModel):
     """Inventory transaction model (ledger-style)."""
 
-    __tablename__ = "inventory_transactions"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    item_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    transaction_type: Indexed(InventoryTransactionType, index_type=Index.ASCENDING)
+    quantity: Decimal
+    unit_price: Optional[Decimal] = None  # Purchase price for stock_in
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, purchase, etc.
+    reference_type: Optional[str] = None  # invoice, purchase, manual, etc.
+    remarks: Optional[str] = None
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True)
-    transaction_type = Column(SQLEnum(InventoryTransactionType), nullable=False, index=True)
-    quantity = Column(Numeric(15, 3), nullable=False)
-    unit_price = Column(Numeric(15, 2), nullable=True)  # Purchase price for stock_in
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    reference_id = Column(Integer, nullable=True)  # Reference to invoice, purchase, etc.
-    reference_type = Column(String(50), nullable=True)  # invoice, purchase, manual, etc.
-    remarks = Column(Text, nullable=True)
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    item = relationship("Item", back_populates="inventory_transactions")
-
-    __table_args__ = (
-        Index("ix_inventory_transactions_business_item_date", "business_id", "item_id", "date"),
-        Index("ix_inventory_transactions_business_type_date", "business_id", "transaction_type", "date"),
-    )
+    class Settings:
+        name = "inventory_transactions"
+        indexes = [
+            [("business_id", 1)],
+            [("item_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("item_id", 1), ("date", 1)],
+            [("business_id", 1), ("transaction_type", 1), ("date", 1)],
+        ]
 
 
 class LowStockAlert(BaseModel):
     """Low stock alert model."""
 
-    __tablename__ = "low_stock_alerts"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    item_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    current_stock: Decimal
+    threshold: Decimal
+    is_resolved: bool = Field(default=False)
+    resolved_at: Optional[datetime] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True)
-    current_stock = Column(Numeric(15, 3), nullable=False)
-    threshold = Column(Numeric(15, 3), nullable=False)
-    is_resolved = Column(Boolean, default=False, nullable=False)
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    item = relationship("Item", back_populates="low_stock_alerts")
-
-    __table_args__ = (Index("ix_low_stock_alerts_business_resolved", "business_id", "is_resolved"),)
-
+    class Settings:
+        name = "low_stock_alerts"
+        indexes = [
+            [("business_id", 1)],
+            [("is_resolved", 1)],
+            [("business_id", 1), ("is_resolved", 1)],
+        ]

@@ -1,70 +1,90 @@
 """Supplier models."""
-from sqlalchemy import Column, String, Numeric, Integer, ForeignKey, Text, DateTime, Boolean, Index, UniqueConstraint
-from sqlalchemy.orm import relationship
+from datetime import datetime, timezone
+from typing import Optional
 from decimal import Decimal
+from pydantic import Field, Index
+from beanie import Indexed, PydanticObjectId
 
 from app.models.base import BaseModel
+from app.core.security import encrypt_data, decrypt_data
 
 
 class Supplier(BaseModel):
     """Supplier model."""
 
-    __tablename__ = "suppliers"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    name: Indexed(str, index_type=Index.ASCENDING)
+    phone: Optional[str] = Field(default=None)  # Encrypted phone
+    email: Optional[str] = Field(default=None)  # Encrypted email
+    address: Optional[str] = None
+    is_active: bool = Field(default=True)
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(255), nullable=False, index=True)
-    phone = Column(String(20), nullable=True, index=True)
-    email = Column(String(255), nullable=True)
-    address = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
+    class Settings:
+        name = "suppliers"
+        indexes = [
+            [("business_id", 1)],
+            [("name", 1)],
+            [("business_id", 1), ("name", 1)],
+            [("business_id", 1), ("is_active", 1)],
+        ]
 
-    # Relationships
-    business = relationship("Business", back_populates="suppliers")
-    transactions = relationship("SupplierTransaction", back_populates="supplier", cascade="all, delete-orphan")
-    balances = relationship("SupplierBalance", back_populates="supplier", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("ix_suppliers_business_name", "business_id", "name"),
-        Index("ix_suppliers_business_active", "business_id", "is_active"),
-    )
+    def set_phone(self, phone: str) -> None:
+        """Set encrypted phone."""
+        if phone:
+            self.phone = encrypt_data(phone)
+    
+    def get_phone(self) -> Optional[str]:
+        """Get decrypted phone."""
+        if self.phone:
+            return decrypt_data(self.phone)
+        return None
+    
+    def set_email(self, email: str) -> None:
+        """Set encrypted email."""
+        if email:
+            self.email = encrypt_data(email)
+    
+    def get_email(self) -> Optional[str]:
+        """Get decrypted email."""
+        if self.email:
+            return decrypt_data(self.email)
+        return None
 
 
 class SupplierTransaction(BaseModel):
     """Supplier transaction model (ledger-style for payable tracking)."""
 
-    __tablename__ = "supplier_transactions"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    supplier_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    transaction_type: Indexed(str, index_type=Index.ASCENDING)  # purchase, payment, adjustment
+    amount: Decimal
+    date: Indexed(datetime, index_type=Index.ASCENDING)
+    reference_id: Optional[PydanticObjectId] = None  # Reference to purchase, payment, etc.
+    reference_type: Optional[str] = None  # purchase, payment, manual, etc.
+    remarks: Optional[str] = None
+    created_by_user_id: Optional[PydanticObjectId] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True)
-    transaction_type = Column(String(50), nullable=False, index=True)  # purchase, payment, adjustment
-    amount = Column(Numeric(15, 2), nullable=False)
-    date = Column(DateTime(timezone=True), nullable=False, index=True)
-    reference_id = Column(Integer, nullable=True)  # Reference to purchase, payment, etc.
-    reference_type = Column(String(50), nullable=True)  # purchase, payment, manual, etc.
-    remarks = Column(Text, nullable=True)
-    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-
-    # Relationships
-    supplier = relationship("Supplier", back_populates="transactions")
-
-    __table_args__ = (
-        Index("ix_supplier_transactions_business_supplier_date", "business_id", "supplier_id", "date"),
-        Index("ix_supplier_transactions_business_type_date", "business_id", "transaction_type", "date"),
-    )
+    class Settings:
+        name = "supplier_transactions"
+        indexes = [
+            [("business_id", 1)],
+            [("supplier_id", 1)],
+            [("date", 1)],
+            [("business_id", 1), ("supplier_id", 1), ("date", 1)],
+            [("business_id", 1), ("transaction_type", 1), ("date", 1)],
+        ]
 
 
 class SupplierBalance(BaseModel):
     """Supplier balance snapshot."""
 
-    __tablename__ = "supplier_balances"
+    business_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    supplier_id: Indexed(PydanticObjectId, index_type=Index.ASCENDING)
+    balance: Decimal = Field(default=Decimal("0.00"))  # Positive = payable
+    last_transaction_date: Optional[datetime] = None
 
-    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True)
-    balance = Column(Numeric(15, 2), default=Decimal("0.00"), nullable=False)  # Positive = payable
-    last_transaction_date = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    supplier = relationship("Supplier", back_populates="balances")
-
-    __table_args__ = (UniqueConstraint("business_id", "supplier_id"),)
-
+    class Settings:
+        name = "supplier_balances"
+        indexes = [
+            [("business_id", 1), ("supplier_id", 1)],  # Unique constraint
+        ]

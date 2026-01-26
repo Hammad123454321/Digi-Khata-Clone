@@ -30,10 +30,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30)
 
     # Database
-    DATABASE_URL: str = Field(...)
-    DATABASE_POOL_SIZE: int = Field(default=20)
-    DATABASE_MAX_OVERFLOW: int = Field(default=10)
-    DATABASE_POOL_PRE_PING: bool = Field(default=True)
+    MONGODB_URL: str = Field(...)
+    MONGODB_DATABASE: str = Field(default="digikhata")
 
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379/0")
@@ -71,6 +69,18 @@ class Settings(BaseSettings):
     BACKUP_RETENTION_DAYS: int = Field(default=30)
     AUTO_BACKUP_INTERVAL_HOURS: int = Field(default=24)
 
+    # Encryption Settings
+    ENCRYPTION_KEY: str = Field(default="")  # 32-byte key for AES-256, base64 encoded
+    ENCRYPTION_ENABLED: bool = Field(default=True)
+    KEY_ROTATION_ENABLED: bool = Field(default=True)
+    KEY_ROTATION_INTERVAL_DAYS: int = Field(default=90)  # Rotate keys every 90 days
+
+    # Data Retention Settings
+    AUDIT_LOG_RETENTION_DAYS: int = Field(default=90)  # Default 90 days, extendable to 1 year
+    AUDIT_LOG_MAX_RETENTION_DAYS: int = Field(default=365)  # Maximum 1 year
+    ENABLE_AUDIT_CLEANUP: bool = Field(default=True)
+    CLEANUP_SCHEDULE_HOURS: int = Field(default=24)  # Run cleanup daily
+
     # Monitoring
     SENTRY_DSN: str = Field(default="")
     SENTRY_ENVIRONMENT: str = Field(default="development")
@@ -103,10 +113,6 @@ class Settings(BaseSettings):
         """Check if running in production."""
         return self.ENVIRONMENT.lower() == "production"
 
-    @property
-    def database_url_sync(self) -> str:
-        """Get synchronous database URL."""
-        return self.DATABASE_URL.replace("+asyncpg", "")
 
 
 @lru_cache()

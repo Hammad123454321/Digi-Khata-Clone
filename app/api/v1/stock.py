@@ -1,12 +1,11 @@
 """Stock management endpoints."""
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
+from app.models.item import Item
 from app.schemas.stock import (
     ItemCreate,
     ItemUpdate,
@@ -24,11 +23,10 @@ router = APIRouter(prefix="/stock", tags=["Stock Management"])
 async def create_item(
     data: ItemCreate,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create a new item."""
     item = await stock_service.create_item(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         name=data.name,
         purchase_price=data.purchase_price,
         sale_price=data.sale_price,
@@ -38,9 +36,7 @@ async def create_item(
         barcode=data.barcode,
         min_stock_threshold=data.min_stock_threshold,
         description=data.description,
-        db=db,
     )
-    await db.commit()
     return item
 
 
@@ -51,41 +47,37 @@ async def list_items(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """List items."""
     items = await stock_service.list_items(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         is_active=is_active,
         search=search,
         limit=limit,
         offset=offset,
-        db=db,
     )
     return items
 
 
 @router.get("/items/{item_id}", response_model=ItemResponse)
 async def get_item(
-    item_id: int,
+    item_id: str,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Get item details."""
-    return await stock_service.get_item(item_id, current_business.id, db)
+    return await stock_service.get_item(item_id, str(current_business.id))
 
 
 @router.patch("/items/{item_id}", response_model=ItemResponse)
 async def update_item(
-    item_id: int,
+    item_id: str,
     data: ItemUpdate,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Update an item."""
     item = await stock_service.update_item(
         item_id=item_id,
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         name=data.name,
         sku=data.sku,
         barcode=data.barcode,
@@ -95,9 +87,7 @@ async def update_item(
         min_stock_threshold=data.min_stock_threshold,
         description=data.description,
         is_active=data.is_active,
-        db=db,
     )
-    await db.commit()
     return item
 
 
@@ -106,23 +96,20 @@ async def create_inventory_transaction(
     data: InventoryTransactionCreate,
     current_business: Business = Depends(get_current_business),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
     """Create an inventory transaction."""
     transaction = await stock_service.create_inventory_transaction(
-        business_id=current_business.id,
-        item_id=data.item_id,
+        business_id=str(current_business.id),
+        item_id=str(data.item_id),
         transaction_type=data.transaction_type,
         quantity=data.quantity,
         date=data.date,
         unit_price=data.unit_price,
-        reference_id=data.reference_id,
+        reference_id=str(data.reference_id) if data.reference_id else None,
         reference_type=data.reference_type,
         remarks=data.remarks,
-        user_id=current_user.id,
-        db=db,
+        user_id=str(current_user.id),
     )
-    await db.commit()
     return transaction
 
 
@@ -130,41 +117,37 @@ async def create_inventory_transaction(
 async def list_low_stock_alerts(
     is_resolved: Optional[bool] = Query(None),
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """List low stock alerts."""
     alerts = await stock_service.list_low_stock_alerts(
-        business_id=current_business.id,
+        business_id=str(current_business.id),
         is_resolved=is_resolved,
-        db=db,
     )
-    # Include item name in response
-    from app.models.item import Item
-    from sqlalchemy import select
+    # Load all items in one query
     result = []
-    for alert in alerts:
-        item_result = await db.execute(select(Item).where(Item.id == alert.item_id))
-        item = item_result.scalar_one_or_none()
-        result.append({
-            "id": alert.id,
-            "item_id": alert.item_id,
-            "item_name": item.name if item else "Unknown",
-            "current_stock": alert.current_stock,
-            "threshold": alert.threshold,
-            "is_resolved": alert.is_resolved,
-            "created_at": alert.created_at,
-        })
+    if alerts:
+        item_ids = [alert.item_id for alert in alerts]
+        items = await Item.find(Item.id.in_(item_ids)).to_list()
+        items_dict = {item.id: item.name for item in items}
+        
+        for alert in alerts:
+            result.append({
+                "id": str(alert.id),
+                "item_id": str(alert.item_id),
+                "item_name": items_dict.get(alert.item_id, "Unknown"),
+                "current_stock": alert.current_stock,
+                "threshold": alert.threshold,
+                "is_resolved": alert.is_resolved,
+                "created_at": alert.created_at,
+            })
     return result
 
 
 @router.post("/alerts/{alert_id}/resolve", status_code=200)
 async def resolve_low_stock_alert(
-    alert_id: int,
+    alert_id: str,
     current_business: Business = Depends(get_current_business),
-    db: AsyncSession = Depends(get_db),
 ):
     """Resolve a low stock alert."""
-    await stock_service.resolve_low_stock_alert(alert_id, current_business.id, db)
-    await db.commit()
+    await stock_service.resolve_low_stock_alert(alert_id, str(current_business.id))
     return {"message": "Alert resolved"}
-

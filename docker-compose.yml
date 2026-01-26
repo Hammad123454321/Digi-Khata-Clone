@@ -1,37 +1,51 @@
+version: '3.8'
+
 services:
-  digi-khata-db:
-    image: postgres:15-alpine
-    container_name: digi-khata-db
+  backend:
+    build: .
+    container_name: digikhata-backend
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: digikhata
-      POSTGRES_PASSWORD: digikhata_password
-      POSTGRES_DB: digikhata
     ports:
-      - "5434:5432"
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-DIGI-KHATA}
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - digikhata-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: digikhata-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digikhata"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - mongodb_data:/data/db
+    networks:
+      - digikhata-network
 
   redis:
     image: redis:7-alpine
-    container_name: digi-khata-redis
+    container_name: digikhata-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks:
+      - digikhata-network
 
 volumes:
-  postgres_data:
+  mongodb_data:
   redis_data:
+
+networks:
+  digikhata-network:
+    driver: bridge
 

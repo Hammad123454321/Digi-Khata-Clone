@@ -1,12 +1,18 @@
+# Git
+.git
+.gitignore
+
 # Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
+__pycache__
+*.pyc
+*.pyo
+*.pyd
 .Python
-*.egg-info/
-.installed.cfg
+*.so
 *.egg
+*.egg-info
+dist
+build
 
 # Virtual Environment
 venv/
@@ -23,15 +29,14 @@ ENV/
 # Environment
 .env
 .env.local
+.env.*.local
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Database
-*.db
-*.sqlite
+.tox/
+.hypothesis/
 
 # Logs
 *.log
@@ -41,3 +46,17 @@ logs/
 .DS_Store
 Thumbs.db
 
+# Flutter app (not needed for backend)
+flutter_app/
+
+# Documentation
+*.md
+!DEPLOYMENT.md
+
+# CI/CD
+.github/
+
+# Temporary
+tmp/
+temp/
+*.tmp

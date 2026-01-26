@@ -2,10 +2,9 @@
 from datetime import datetime
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from beanie import PydanticObjectId
 
-from app.models.invoice import Invoice, InvoiceType
+from app.models.invoice import Invoice, InvoiceType, InvoiceItem
 from app.models.expense import Expense
 from app.models.cash import CashTransaction, CashTransactionType
 from app.models.item import Item
@@ -19,38 +18,53 @@ class ReportsService:
 
     @staticmethod
     async def get_sales_report(
-        business_id: int,
+        business_id: str,
         start_date: datetime,
         end_date: datetime,
-        db: AsyncSession,
     ) -> dict:
         """Get sales report."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         # Get invoices
-        result = await db.execute(
-            select(Invoice).where(
-                Invoice.business_id == business_id,
-                Invoice.date >= start_date,
-                Invoice.date <= end_date,
-            )
-        )
-        invoices = result.scalars().all()
+        invoices = await Invoice.find(
+            Invoice.business_id == business_obj_id,
+            Invoice.date >= start_date,
+            Invoice.date <= end_date,
+        ).to_list()
+
+        # Load items for each invoice
+        for invoice in invoices:
+            invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
 
         total_sales = sum(inv.total_amount for inv in invoices)
         cash_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CASH)
         credit_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CREDIT)
 
         # Calculate profit (sale price - purchase price)
-        total_profit = Decimal("0.00")
+        # First, collect all unique item IDs
+        item_ids = set()
         for invoice in invoices:
             for item in invoice.items:
                 if item.item_id:
-                    item_result = await db.execute(
-                        select(Item).where(Item.id == item.item_id)
-                    )
-                    item_obj = item_result.scalar_one_or_none()
-                    if item_obj:
-                        profit_per_unit = item.unit_price - item_obj.purchase_price
-                        total_profit += profit_per_unit * item.quantity
+                    item_ids.add(item.item_id)
+        
+        # Batch load all items at once to avoid N+1 queries
+        items_map = {}
+        if item_ids:
+            items = await Item.find(Item.id.in_(list(item_ids))).to_list()
+            items_map = {item.id: item for item in items}
+        
+        # Calculate profit using the pre-loaded items
+        total_profit = Decimal("0.00")
+        for invoice in invoices:
+            for item in invoice.items:
+                if item.item_id and item.item_id in items_map:
+                    item_obj = items_map[item.item_id]
+                    profit_per_unit = item.unit_price - item_obj.purchase_price
+                    total_profit += profit_per_unit * item.quantity
 
         return {
             "start_date": start_date,
@@ -64,14 +78,13 @@ class ReportsService:
 
     @staticmethod
     async def get_cash_flow_report(
-        business_id: int,
+        business_id: str,
         start_date: datetime,
         end_date: datetime,
-        db: AsyncSession,
     ) -> dict:
         """Get cash flow report."""
         from app.services.cash import cash_service
-        summary = await cash_service.get_summary(business_id, start_date, end_date, db)
+        summary = await cash_service.get_summary(business_id, start_date, end_date)
 
         return {
             "start_date": start_date,
@@ -84,25 +97,28 @@ class ReportsService:
 
     @staticmethod
     async def get_expense_report(
-        business_id: int,
+        business_id: str,
         start_date: datetime,
         end_date: datetime,
-        db: AsyncSession,
     ) -> dict:
         """Get expense report."""
         from app.services.expense import expense_service
-        return await expense_service.get_summary(business_id, start_date, end_date, db)
+        return await expense_service.get_summary(business_id, start_date, end_date)
 
     @staticmethod
     async def get_stock_report(
-        business_id: int,
-        db: AsyncSession,
+        business_id: str,
     ) -> dict:
         """Get stock report."""
-        result = await db.execute(
-            select(Item).where(Item.business_id == business_id, Item.is_active == True)
-        )
-        items = result.scalars().all()
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        items = await Item.find(
+            Item.business_id == business_obj_id,
+            Item.is_active == True,
+        ).to_list()
 
         total_items = len(items)
         low_stock_items = [item for item in items if item.min_stock_threshold and item.current_stock < item.min_stock_threshold]
@@ -115,7 +131,7 @@ class ReportsService:
             "total_stock_value": total_stock_value,
             "low_stock_items": [
                 {
-                    "id": item.id,
+                    "id": str(item.id),
                     "name": item.name,
                     "current_stock": item.current_stock,
                     "threshold": item.min_stock_threshold,
@@ -126,17 +142,16 @@ class ReportsService:
 
     @staticmethod
     async def get_profit_loss(
-        business_id: int,
+        business_id: str,
         start_date: datetime,
         end_date: datetime,
-        db: AsyncSession,
     ) -> dict:
         """Get profit & loss summary."""
         # Get sales
-        sales_report = await ReportsService.get_sales_report(business_id, start_date, end_date, db)
+        sales_report = await ReportsService.get_sales_report(business_id, start_date, end_date)
 
         # Get expenses
-        expense_report = await ReportsService.get_expense_report(business_id, start_date, end_date, db)
+        expense_report = await ReportsService.get_expense_report(business_id, start_date, end_date)
 
         net_profit = sales_report["total_profit"] - expense_report["total_expenses"]
 
@@ -152,4 +167,3 @@ class ReportsService:
 
 # Singleton instance
 reports_service = ReportsService()
-

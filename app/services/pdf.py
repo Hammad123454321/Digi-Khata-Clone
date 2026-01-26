@@ -4,9 +4,7 @@ import io
 from typing import Optional, BinaryIO
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from beanie import PydanticObjectId
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.units import inch
@@ -14,8 +12,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
-from app.models.invoice import Invoice
+from app.models.invoice import Invoice, InvoiceItem
 from app.models.business import Business
+from app.models.customer import Customer
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
@@ -28,22 +27,27 @@ class PDFService:
     """PDF generation service."""
 
     @staticmethod
-    async def generate_invoice_pdf(invoice_id: int, db: AsyncSession) -> bytes:
+    async def generate_invoice_pdf(invoice_id: str) -> bytes:
         """Generate PDF for invoice and return as bytes."""
-        # Get invoice with relationships
-        result = await db.execute(
-            select(Invoice)
-            .where(Invoice.id == invoice_id)
-            .options(
-                selectinload(Invoice.items),
-                selectinload(Invoice.business),
-                selectinload(Invoice.customer),
-            )
-        )
-        invoice = result.scalar_one_or_none()
+        try:
+            invoice_obj_id = PydanticObjectId(invoice_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Invoice not found")
+
+        # Get invoice
+        invoice = await Invoice.get(invoice_obj_id)
 
         if not invoice:
             raise NotFoundError("Invoice not found")
+
+        # Load related data
+        invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+        
+        if invoice.business_id:
+            invoice.business = await Business.get(invoice.business_id)
+        
+        if invoice.customer_id:
+            invoice.customer = await Customer.get(invoice.customer_id)
 
         # Create PDF in memory
         buffer = io.BytesIO()
@@ -93,7 +97,9 @@ class PDFService:
         if business.phone:
             business_data.append([Paragraph(f"Phone: {business.phone}", normal_style)])
         if business.email:
-            business_data.append([Paragraph(f"Email: {business.email}", normal_style)])
+            business_email = business.get_email() if hasattr(business, 'get_email') else business.email
+            if business_email:
+                business_data.append([Paragraph(f"Email: {business_email}", normal_style)])
 
         business_table = Table(business_data, colWidths=[4*inch])
         business_table.setStyle(TableStyle([
@@ -122,9 +128,13 @@ class PDFService:
                 [Paragraph(f"<b>{customer.name}</b>", header_style)],
             ]
             if customer.phone:
-                customer_info.append([Paragraph(f"Phone: {customer.phone}", normal_style)])
+                customer_phone = customer.get_phone() if hasattr(customer, 'get_phone') else customer.phone
+                if customer_phone:
+                    customer_info.append([Paragraph(f"Phone: {customer_phone}", normal_style)])
             if customer.email:
-                customer_info.append([Paragraph(f"Email: {customer.email}", normal_style)])
+                customer_email = customer.get_email() if hasattr(customer, 'get_email') else customer.email
+                if customer_email:
+                    customer_info.append([Paragraph(f"Email: {customer_email}", normal_style)])
             if customer.address:
                 customer_info.append([Paragraph(customer.address, normal_style)])
 
@@ -229,7 +239,6 @@ class PDFService:
             ('LEFTPADDING', (0, 0), (-1, -1), 0),
             ('RIGHTPADDING', (0, 0), (-1, -1), 0),
         ]))
-        story.append(Paragraph("<para alignment='right'>", styles['Normal']))
         story.append(totals_table)
         story.append(Spacer(1, 0.2*inch))
 
@@ -263,18 +272,19 @@ class PDFService:
 
     @staticmethod
     async def generate_invoice_pdf_and_save(
-        invoice_id: int,
-        db: AsyncSession,
+        invoice_id: str,
         upload_to_s3: bool = True
     ) -> str:
         """Generate PDF and optionally save to S3, return path/URL."""
-        pdf_bytes = await PDFService.generate_invoice_pdf(invoice_id, db)
+        pdf_bytes = await PDFService.generate_invoice_pdf(invoice_id)
 
         # Get invoice to update pdf_path
-        result = await db.execute(
-            select(Invoice).where(Invoice.id == invoice_id)
-        )
-        invoice = result.scalar_one_or_none()
+        try:
+            invoice_obj_id = PydanticObjectId(invoice_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Invoice not found")
+
+        invoice = await Invoice.get(invoice_obj_id)
 
         if not invoice:
             raise NotFoundError("Invoice not found")
@@ -310,7 +320,6 @@ class PDFService:
 
         # Update invoice with PDF path
         invoice.pdf_path = pdf_path
-        await db.commit()
+        await invoice.save()
 
         return pdf_path
-

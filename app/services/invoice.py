@@ -2,16 +2,14 @@
 from datetime import datetime, timezone
 from typing import Optional, List
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError, BusinessLogicError
 from app.models.invoice import Invoice, InvoiceItem, InvoiceType
 from app.models.item import Item
-from app.models.customer import Customer, CustomerTransaction, CustomerBalance
+from app.models.customer import Customer, CustomerTransaction
 from app.models.cash import CashTransaction, CashTransactionType
 from app.models.item import InventoryTransaction, InventoryTransactionType
-from sqlalchemy.orm import selectinload
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -21,52 +19,90 @@ class InvoiceService:
     """Invoice management service."""
 
     @staticmethod
-    async def generate_invoice_number(business_id: int, db: AsyncSession) -> str:
+    async def generate_invoice_number(business_id: str) -> str:
         """Generate unique invoice number."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         # Get count of invoices for this business
-        result = await db.execute(
-            select(func.count(Invoice.id)).where(Invoice.business_id == business_id)
-        )
-        count = result.scalar_one() or 0
+        count = await Invoice.find(Invoice.business_id == business_obj_id).count()
 
         # Format: INV-{business_id}-{sequential_number}
-        invoice_number = f"INV-{business_id}-{count + 1:06d}"
+        invoice_number = f"INV-{business_id[:8]}-{count + 1:06d}"
         return invoice_number
 
     @staticmethod
     async def create_invoice(
-        business_id: int,
-        customer_id: Optional[int],
+        business_id: str,
+        customer_id: Optional[str],
         invoice_type: str,
         date: datetime,
         items: List[dict],
         tax_amount: Decimal = Decimal("0.00"),
         discount_amount: Decimal = Decimal("0.00"),
         remarks: Optional[str] = None,
-        user_id: Optional[int] = None,
-        db: AsyncSession = None,
+        user_id: Optional[str] = None,
     ) -> Invoice:
         """Create a new invoice."""
-        # Validate customer if provided
+        # Validate customer required for credit invoices
+        if invoice_type == "credit" and not customer_id:
+            raise BusinessLogicError("Customer is required for credit sales")
+        
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        customer_obj_id = None
         if customer_id:
-            result = await db.execute(
-                select(Customer).where(Customer.id == customer_id, Customer.business_id == business_id)
-            )
-            customer = result.scalar_one_or_none()
-            if not customer:
-                raise NotFoundError("Customer not found")
+            try:
+                customer_obj_id = PydanticObjectId(customer_id)
+                customer = await Customer.find_one(
+                    Customer.id == customer_obj_id,
+                    Customer.business_id == business_obj_id,
+                )
+                if not customer:
+                    raise NotFoundError("Customer not found")
+            except (ValueError, TypeError):
+                raise NotFoundError("Invalid customer ID format")
+
+        # Validate stock availability BEFORE creating invoice
+        from app.services.stock import stock_service
+        for item_data in items:
+            if item_data.get("item_id"):
+                item_id = item_data["item_id"]
+                quantity = item_data["quantity"]
+                
+                try:
+                    item = await stock_service.get_item(str(item_id), business_id)
+                    if item.current_stock < quantity:
+                        raise BusinessLogicError(
+                            f"Insufficient stock for item '{item.name}'. "
+                            f"Available: {item.current_stock}, Required: {quantity}"
+                        )
+                except NotFoundError:
+                    raise NotFoundError(f"Item with id {item_id} not found")
 
         # Generate invoice number
-        invoice_number = await InvoiceService.generate_invoice_number(business_id, db)
+        invoice_number = await InvoiceService.generate_invoice_number(business_id)
 
         # Calculate subtotal
         subtotal = sum(item["quantity"] * item["unit_price"] for item in items)
         total_amount = subtotal + tax_amount - discount_amount
 
+        user_obj_id = None
+        if user_id:
+            try:
+                user_obj_id = PydanticObjectId(user_id)
+            except (ValueError, TypeError):
+                pass
+
         # Create invoice
         invoice = Invoice(
-            business_id=business_id,
-            customer_id=customer_id,
+            business_id=business_obj_id,
+            customer_id=customer_obj_id,
             invoice_number=invoice_number,
             invoice_type=InvoiceType(invoice_type),
             date=date,
@@ -76,39 +112,42 @@ class InvoiceService:
             total_amount=total_amount,
             paid_amount=Decimal("0.00") if invoice_type == "credit" else total_amount,
             remarks=remarks,
-            created_by_user_id=user_id,
+            created_by_user_id=user_obj_id,
         )
-        db.add(invoice)
-        await db.flush()
+        await invoice.insert()
 
         # Create invoice items and update stock
         for item_data in items:
+            item_obj_id = None
+            if item_data.get("item_id"):
+                try:
+                    item_obj_id = PydanticObjectId(str(item_data["item_id"]))
+                except (ValueError, TypeError):
+                    pass
+
             invoice_item = InvoiceItem(
                 invoice_id=invoice.id,
-                item_id=item_data.get("item_id"),
+                item_id=item_obj_id,
                 item_name=item_data["item_name"],
                 quantity=item_data["quantity"],
                 unit_price=item_data["unit_price"],
                 total_price=item_data["quantity"] * item_data["unit_price"],
             )
-            db.add(invoice_item)
+            await invoice_item.insert()
 
             # Update stock if item_id provided
             if item_data.get("item_id"):
                 from app.services.stock import stock_service
                 await stock_service.create_inventory_transaction(
                     business_id=business_id,
-                    item_id=item_data["item_id"],
+                    item_id=str(item_data["item_id"]),
                     transaction_type="stock_out",
                     quantity=item_data["quantity"],
                     date=date,
-                    reference_id=invoice.id,
+                    reference_id=str(invoice.id),
                     reference_type="invoice",
                     user_id=user_id,
-                    db=db,
                 )
-
-        await db.flush()
 
         # Handle cash/credit transactions
         if invoice_type == "cash":
@@ -121,139 +160,133 @@ class InvoiceService:
                 date=date,
                 source="sales",
                 remarks=f"Invoice {invoice_number}",
-                reference_id=invoice.id,
+                reference_id=str(invoice.id),
                 reference_type="invoice",
                 user_id=user_id,
-                db=db,
             )
         elif invoice_type == "credit" and customer_id:
             # Create customer credit transaction
             customer_transaction = CustomerTransaction(
-                business_id=business_id,
-                customer_id=customer_id,
+                business_id=business_obj_id,
+                customer_id=customer_obj_id,
                 transaction_type="credit",
                 amount=total_amount,
                 date=date,
                 reference_id=invoice.id,
                 reference_type="invoice",
                 remarks=f"Invoice {invoice_number}",
-                created_by_user_id=user_id,
+                created_by_user_id=user_obj_id,
             )
-            db.add(customer_transaction)
-            await db.flush()
+            await customer_transaction.insert()
 
             # Update customer balance
-            await InvoiceService._update_customer_balance(business_id, customer_id, db)
+            from app.services.customer import customer_service
+            await customer_service._update_customer_balance(business_id, customer_id)
 
-        # Generate PDF (async, can be done later)
-        # pdf_service = PDFService()
-        # pdf_path = await pdf_service.generate_invoice_pdf(invoice.id, db)
-        # invoice.pdf_path = pdf_path
-
-        logger.info("invoice_created", business_id=business_id, invoice_id=invoice.id, invoice_number=invoice_number)
+        logger.info("invoice_created", business_id=business_id, invoice_id=str(invoice.id), invoice_number=invoice_number)
 
         return invoice
 
     @staticmethod
-    async def _update_customer_balance(business_id: int, customer_id: int, db: AsyncSession) -> None:
-        """Update customer balance."""
-        # Calculate balance from transactions
-        result = await db.execute(
-            select(func.sum(CustomerTransaction.amount)).where(
-                CustomerTransaction.business_id == business_id,
-                CustomerTransaction.customer_id == customer_id,
-                CustomerTransaction.transaction_type == "credit",
-            )
-        )
-        total_credit = result.scalar_one() or Decimal("0.00")
-
-        result = await db.execute(
-            select(func.sum(CustomerTransaction.amount)).where(
-                CustomerTransaction.business_id == business_id,
-                CustomerTransaction.customer_id == customer_id,
-                CustomerTransaction.transaction_type == "payment",
-            )
-        )
-        total_payment = result.scalar_one() or Decimal("0.00")
-
-        balance = total_credit - total_payment
-
-        # Get last transaction date
-        result = await db.execute(
-            select(func.max(CustomerTransaction.date)).where(
-                CustomerTransaction.business_id == business_id,
-                CustomerTransaction.customer_id == customer_id,
-            )
-        )
-        last_transaction_date = result.scalar_one()
-
-        # Update or create balance
-        result = await db.execute(
-            select(CustomerBalance).where(
-                CustomerBalance.business_id == business_id,
-                CustomerBalance.customer_id == customer_id,
-            )
-        )
-        customer_balance = result.scalar_one_or_none()
-
-        if customer_balance:
-            customer_balance.balance = balance
-            customer_balance.last_transaction_date = last_transaction_date
-        else:
-            customer_balance = CustomerBalance(
-                business_id=business_id,
-                customer_id=customer_id,
-                balance=balance,
-                last_transaction_date=last_transaction_date,
-            )
-            db.add(customer_balance)
-
-        await db.flush()
-
-    @staticmethod
-    async def get_invoice(invoice_id: int, business_id: int, db: AsyncSession) -> Invoice:
+    async def get_invoice(invoice_id: str, business_id: str) -> Invoice:
         """Get invoice by ID."""
-        result = await db.execute(
-            select(Invoice)
-            .where(Invoice.id == invoice_id, Invoice.business_id == business_id)
-            .options(selectinload(Invoice.items))
+        try:
+            invoice_obj_id = PydanticObjectId(invoice_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Invoice not found")
+
+        invoice = await Invoice.find_one(
+            Invoice.id == invoice_obj_id,
+            Invoice.business_id == business_obj_id,
         )
-        invoice = result.scalar_one_or_none()
 
         if not invoice:
             raise NotFoundError("Invoice not found")
+
+        # Load items separately
+        invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
 
         return invoice
 
     @staticmethod
     async def list_invoices(
-        business_id: int,
+        business_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        customer_id: Optional[int] = None,
+        customer_id: Optional[str] = None,
         invoice_type: Optional[str] = None,
+        is_paid: Optional[bool] = None,
         limit: int = 100,
         offset: int = 0,
-        db: AsyncSession = None,
     ) -> List[Invoice]:
         """List invoices."""
-        query = select(Invoice).where(Invoice.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = Invoice.find(Invoice.business_id == business_obj_id)
 
         if start_date:
-            query = query.where(Invoice.date >= start_date)
+            query = query.find(Invoice.date >= start_date)
         if end_date:
-            query = query.where(Invoice.date <= end_date)
+            query = query.find(Invoice.date <= end_date)
         if customer_id:
-            query = query.where(Invoice.customer_id == customer_id)
+            try:
+                customer_obj_id = PydanticObjectId(customer_id)
+                query = query.find(Invoice.customer_id == customer_obj_id)
+            except (ValueError, TypeError):
+                pass
         if invoice_type:
-            query = query.where(Invoice.invoice_type == InvoiceType(invoice_type))
+            query = query.find(Invoice.invoice_type == InvoiceType(invoice_type))
+        if is_paid is not None:
+            # Note: MongoDB doesn't support direct field comparison in queries like this
+            # We'll filter after fetching
+            pass
 
-        query = query.order_by(Invoice.date.desc()).limit(limit).offset(offset)
+        invoices = await query.sort("-date").skip(offset).limit(limit).to_list()
 
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        # Filter by is_paid if needed
+        if is_paid is not None:
+            if is_paid:
+                invoices = [inv for inv in invoices if inv.paid_amount >= inv.total_amount]
+            else:
+                invoices = [inv for inv in invoices if inv.paid_amount < inv.total_amount]
+
+        # Load items for each invoice
+        for invoice in invoices:
+            invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+
+        return invoices
+
+    @staticmethod
+    async def get_unpaid_invoices(
+        business_id: str,
+        customer_id: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Invoice]:
+        """Get unpaid invoices (credit invoices with paid_amount < total_amount)."""
+        return await InvoiceService.list_invoices(
+            business_id=business_id,
+            customer_id=customer_id,
+            invoice_type="credit",
+            is_paid=False,
+            limit=limit,
+            offset=offset,
+        )
+
+    @staticmethod
+    def is_invoice_paid(invoice: Invoice) -> bool:
+        """Check if invoice is fully paid."""
+        return invoice.paid_amount >= invoice.total_amount
+
+    @staticmethod
+    def get_invoice_balance(invoice: Invoice) -> Decimal:
+        """Get remaining balance on invoice."""
+        return max(Decimal("0.00"), invoice.total_amount - invoice.paid_amount)
 
 
 # Singleton instance
 invoice_service = InvoiceService()
-

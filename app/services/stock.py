@@ -2,11 +2,10 @@
 from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError, BusinessLogicError
-from app.models.item import Item, InventoryTransaction, InventoryTransactionType, LowStockAlert
+from app.models.item import Item, InventoryTransaction, InventoryTransactionType, LowStockAlert, ItemUnit
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,7 +16,7 @@ class StockService:
 
     @staticmethod
     async def create_item(
-        business_id: int,
+        business_id: str,
         name: str,
         purchase_price: Decimal,
         sale_price: Decimal,
@@ -27,52 +26,57 @@ class StockService:
         barcode: Optional[str] = None,
         min_stock_threshold: Optional[Decimal] = None,
         description: Optional[str] = None,
-        db: AsyncSession = None,
     ) -> Item:
         """Create a new item."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
         # Check for duplicate SKU or barcode
         if sku:
-            result = await db.execute(
-                select(Item).where(Item.business_id == business_id, Item.sku == sku)
+            existing = await Item.find_one(
+                Item.business_id == business_obj_id,
+                Item.sku == sku,
             )
-            if result.scalar_one_or_none():
+            if existing:
                 raise BusinessLogicError("Item with this SKU already exists")
 
         if barcode:
-            result = await db.execute(
-                select(Item).where(Item.business_id == business_id, Item.barcode == barcode)
+            existing = await Item.find_one(
+                Item.business_id == business_obj_id,
+                Item.barcode == barcode,
             )
-            if result.scalar_one_or_none():
+            if existing:
                 raise BusinessLogicError("Item with this barcode already exists")
 
         item = Item(
-            business_id=business_id,
+            business_id=business_obj_id,
             name=name,
             sku=sku,
             barcode=barcode,
             purchase_price=purchase_price,
             sale_price=sale_price,
-            unit=unit,
+            unit=ItemUnit(unit),
             opening_stock=opening_stock,
             current_stock=opening_stock,
             min_stock_threshold=min_stock_threshold,
             description=description,
             is_active=True,
         )
-        db.add(item)
-        await db.flush()
+        await item.insert()
 
         # Check for low stock alert
         if min_stock_threshold and opening_stock < min_stock_threshold:
-            await StockService._create_low_stock_alert(business_id, item.id, opening_stock, min_stock_threshold, db)
+            await StockService._create_low_stock_alert(business_id, str(item.id), opening_stock, min_stock_threshold)
 
-        logger.info("item_created", business_id=business_id, item_id=item.id, name=name)
+        logger.info("item_created", business_id=business_id, item_id=str(item.id), name=name)
         return item
 
     @staticmethod
     async def update_item(
-        item_id: int,
-        business_id: int,
+        item_id: str,
+        business_id: str,
         name: Optional[str] = None,
         sku: Optional[str] = None,
         barcode: Optional[str] = None,
@@ -82,13 +86,18 @@ class StockService:
         min_stock_threshold: Optional[Decimal] = None,
         description: Optional[str] = None,
         is_active: Optional[bool] = None,
-        db: AsyncSession = None,
     ) -> Item:
         """Update an item."""
-        result = await db.execute(
-            select(Item).where(Item.id == item_id, Item.business_id == business_id)
+        try:
+            item_obj_id = PydanticObjectId(item_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Item not found")
+
+        item = await Item.find_one(
+            Item.id == item_obj_id,
+            Item.business_id == business_obj_id,
         )
-        item = result.scalar_one_or_none()
 
         if not item:
             raise NotFoundError("Item not found")
@@ -98,19 +107,23 @@ class StockService:
         if sku is not None:
             # Check for duplicate SKU
             if sku != item.sku:
-                result = await db.execute(
-                    select(Item).where(Item.business_id == business_id, Item.sku == sku, Item.id != item_id)
+                existing = await Item.find_one(
+                    Item.business_id == business_obj_id,
+                    Item.sku == sku,
+                    Item.id != item_obj_id,
                 )
-                if result.scalar_one_or_none():
+                if existing:
                     raise BusinessLogicError("Item with this SKU already exists")
             item.sku = sku
         if barcode is not None:
             # Check for duplicate barcode
             if barcode != item.barcode:
-                result = await db.execute(
-                    select(Item).where(Item.business_id == business_id, Item.barcode == barcode, Item.id != item_id)
+                existing = await Item.find_one(
+                    Item.business_id == business_obj_id,
+                    Item.barcode == barcode,
+                    Item.id != item_obj_id,
                 )
-                if result.scalar_one_or_none():
+                if existing:
                     raise BusinessLogicError("Item with this barcode already exists")
             item.barcode = barcode
         if purchase_price is not None:
@@ -118,31 +131,37 @@ class StockService:
         if sale_price is not None:
             item.sale_price = sale_price
         if unit is not None:
-            item.unit = unit
+            item.unit = ItemUnit(unit)
         if min_stock_threshold is not None:
             item.min_stock_threshold = min_stock_threshold
             # Check if current stock is below new threshold
             if item.current_stock < min_stock_threshold:
                 await StockService._create_low_stock_alert(
-                    business_id, item_id, item.current_stock, min_stock_threshold, db
+                    business_id, item_id, item.current_stock, min_stock_threshold
                 )
         if description is not None:
             item.description = description
         if is_active is not None:
             item.is_active = is_active
 
-        await db.flush()
+        await item.save()
 
         logger.info("item_updated", business_id=business_id, item_id=item_id)
         return item
 
     @staticmethod
-    async def get_item(item_id: int, business_id: int, db: AsyncSession) -> Item:
+    async def get_item(item_id: str, business_id: str) -> Item:
         """Get item by ID."""
-        result = await db.execute(
-            select(Item).where(Item.id == item_id, Item.business_id == business_id)
+        try:
+            item_obj_id = PydanticObjectId(item_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Item not found")
+
+        item = await Item.find_one(
+            Item.id == item_obj_id,
+            Item.business_id == business_obj_id,
         )
-        item = result.scalar_one_or_none()
 
         if not item:
             raise NotFoundError("Item not found")
@@ -151,63 +170,83 @@ class StockService:
 
     @staticmethod
     async def list_items(
-        business_id: int,
+        business_id: str,
         is_active: Optional[bool] = None,
         search: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
-        db: AsyncSession = None,
     ) -> list[Item]:
         """List items."""
-        query = select(Item).where(Item.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = Item.find(Item.business_id == business_obj_id)
 
         if is_active is not None:
-            query = query.where(Item.is_active == is_active)
+            query = query.find(Item.is_active == is_active)
         if search:
-            query = query.where(
-                (Item.name.ilike(f"%{search}%"))
-                | (Item.sku.ilike(f"%{search}%"))
-                | (Item.barcode.ilike(f"%{search}%"))
+            import re
+            search_regex = re.compile(search, re.IGNORECASE)
+            query = query.find(
+                (Item.name == search_regex) | (Item.sku == search_regex) | (Item.barcode == search_regex)
             )
 
-        query = query.order_by(Item.name).limit(limit).offset(offset)
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        items = await query.sort("+name").skip(offset).limit(limit).to_list()
+        return items
 
     @staticmethod
     async def create_inventory_transaction(
-        business_id: int,
-        item_id: int,
+        business_id: str,
+        item_id: str,
         transaction_type: str,
         quantity: Decimal,
         date: datetime,
         unit_price: Optional[Decimal] = None,
-        reference_id: Optional[int] = None,
+        reference_id: Optional[str] = None,
         reference_type: Optional[str] = None,
         remarks: Optional[str] = None,
-        user_id: Optional[int] = None,
-        db: AsyncSession = None,
+        user_id: Optional[str] = None,
     ) -> InventoryTransaction:
         """Create an inventory transaction."""
         # Get item
-        item = await StockService.get_item(item_id, business_id, db)
+        item = await StockService.get_item(item_id, business_id)
+
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            item_obj_id = PydanticObjectId(item_id)
+        except (ValueError, TypeError):
+            raise ValueError("Invalid business or item ID format")
+
+        user_obj_id = None
+        if user_id:
+            try:
+                user_obj_id = PydanticObjectId(user_id)
+            except (ValueError, TypeError):
+                pass
+
+        ref_obj_id = None
+        if reference_id:
+            try:
+                ref_obj_id = PydanticObjectId(reference_id)
+            except (ValueError, TypeError):
+                pass
 
         # Create transaction
         transaction = InventoryTransaction(
-            business_id=business_id,
-            item_id=item_id,
+            business_id=business_obj_id,
+            item_id=item_obj_id,
             transaction_type=InventoryTransactionType(transaction_type),
             quantity=quantity,
             unit_price=unit_price,
             date=date,
-            reference_id=reference_id,
+            reference_id=ref_obj_id,
             reference_type=reference_type,
             remarks=remarks,
-            created_by_user_id=user_id,
+            created_by_user_id=user_obj_id,
         )
-        db.add(transaction)
-        await db.flush()
+        await transaction.insert()
 
         # Update item stock
         if transaction_type == "stock_in":
@@ -224,12 +263,12 @@ class StockService:
             # Adjustment can be positive or negative
             item.current_stock = quantity
 
-        await db.flush()
+        await item.save()
 
         # Check for low stock alert
         if item.min_stock_threshold and item.current_stock < item.min_stock_threshold:
             await StockService._create_low_stock_alert(
-                business_id, item_id, item.current_stock, item.min_stock_threshold, db
+                business_id, item_id, item.current_stock, item.min_stock_threshold
             )
 
         logger.info(
@@ -244,75 +283,80 @@ class StockService:
 
     @staticmethod
     async def _create_low_stock_alert(
-        business_id: int,
-        item_id: int,
+        business_id: str,
+        item_id: str,
         current_stock: Decimal,
         threshold: Decimal,
-        db: AsyncSession,
     ) -> None:
         """Create or update low stock alert."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            item_obj_id = PydanticObjectId(item_id)
+        except (ValueError, TypeError):
+            return
+
         # Check if unresolved alert exists
-        result = await db.execute(
-            select(LowStockAlert).where(
-                LowStockAlert.business_id == business_id,
-                LowStockAlert.item_id == item_id,
-                LowStockAlert.is_resolved == False,
-            )
+        alert = await LowStockAlert.find_one(
+            LowStockAlert.business_id == business_obj_id,
+            LowStockAlert.item_id == item_obj_id,
+            LowStockAlert.is_resolved == False,
         )
-        alert = result.scalar_one_or_none()
 
         if alert:
             # Update existing alert
             alert.current_stock = current_stock
+            await alert.save()
         else:
             # Create new alert
             alert = LowStockAlert(
-                business_id=business_id,
-                item_id=item_id,
+                business_id=business_obj_id,
+                item_id=item_obj_id,
                 current_stock=current_stock,
                 threshold=threshold,
                 is_resolved=False,
             )
-            db.add(alert)
-
-        await db.flush()
+            await alert.insert()
 
     @staticmethod
     async def list_low_stock_alerts(
-        business_id: int,
+        business_id: str,
         is_resolved: Optional[bool] = None,
-        db: AsyncSession = None,
     ) -> list[LowStockAlert]:
         """List low stock alerts."""
-        query = select(LowStockAlert).where(LowStockAlert.business_id == business_id)
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid business ID format: {business_id}")
+
+        query = LowStockAlert.find(LowStockAlert.business_id == business_obj_id)
 
         if is_resolved is not None:
-            query = query.where(LowStockAlert.is_resolved == is_resolved)
+            query = query.find(LowStockAlert.is_resolved == is_resolved)
 
-        query = query.order_by(LowStockAlert.created_at.desc())
-
-        result = await db.execute(query)
-        return list(result.scalars().all())
+        alerts = await query.sort("-created_at").to_list()
+        return alerts
 
     @staticmethod
-    async def resolve_low_stock_alert(alert_id: int, business_id: int, db: AsyncSession) -> None:
+    async def resolve_low_stock_alert(alert_id: str, business_id: str) -> None:
         """Resolve a low stock alert."""
-        result = await db.execute(
-            select(LowStockAlert).where(
-                LowStockAlert.id == alert_id,
-                LowStockAlert.business_id == business_id,
-            )
+        try:
+            alert_obj_id = PydanticObjectId(alert_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Alert not found")
+
+        alert = await LowStockAlert.find_one(
+            LowStockAlert.id == alert_obj_id,
+            LowStockAlert.business_id == business_obj_id,
         )
-        alert = result.scalar_one_or_none()
 
         if not alert:
             raise NotFoundError("Alert not found")
 
         alert.is_resolved = True
         alert.resolved_at = datetime.now(timezone.utc)
-        await db.flush()
+        await alert.save()
 
 
 # Singleton instance
 stock_service = StockService()
-
