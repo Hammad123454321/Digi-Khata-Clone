@@ -158,7 +158,8 @@ class CashService:
         
         # If balance doesn't exist, calculate it from previous day and transactions
         # Get previous day's closing balance
-        prev_day_start = datetime.combine((balance_date - timedelta(days=1)).date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+        prev_day_date = balance_date - timedelta(days=1)
+        prev_day_start = datetime.combine(prev_day_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         prev_balance = await CashBalance.find_one(
             CashBalance.business_id == business_obj_id,
             CashBalance.date == prev_day_start,
