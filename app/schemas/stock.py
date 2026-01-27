@@ -1,8 +1,8 @@
 """Stock management schemas."""
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ItemCreate(BaseModel):
@@ -17,6 +17,25 @@ class ItemCreate(BaseModel):
     opening_stock: Decimal = Field(default=Decimal("0.000"), ge=0)
     min_stock_threshold: Optional[Decimal] = Field(None, ge=0)
     description: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def convert_decimal_fields(cls, data: Any) -> Any:
+        """Convert numeric fields to Decimal for proper validation."""
+        if isinstance(data, dict):
+            decimal_fields = ['purchase_price', 'sale_price', 'opening_stock', 'min_stock_threshold']
+            converted = data.copy()
+            for field in decimal_fields:
+                if field in converted and converted[field] is not None:
+                    try:
+                        # Convert int, float, or string to Decimal
+                        if isinstance(converted[field], (int, float, str)):
+                            converted[field] = Decimal(str(converted[field]))
+                    except (ValueError, TypeError):
+                        # If conversion fails, let Pydantic handle the error
+                        pass
+            return converted
+        return data
 
 
 class ItemUpdate(BaseModel):

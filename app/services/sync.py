@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import BusinessLogicError, NotFoundError
+from app.core.exceptions import BusinessLogicError, NotFoundError, ValidationError
 from app.models.sync import SyncChangeLog, SyncAction
 from app.models.device import Device
 from app.core.logging import get_logger
@@ -49,7 +49,10 @@ class SyncService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Verify device exists and is active
         device = await Device.find_one(
@@ -149,7 +152,10 @@ class SyncService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Verify device exists and is active
         device = await Device.find_one(
@@ -342,7 +348,10 @@ class SyncService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Convert Decimal strings back to Decimal
         data = SyncService._convert_decimals(data)
@@ -440,7 +449,10 @@ class SyncService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Get device
         device = await Device.find_one(

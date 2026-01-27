@@ -35,7 +35,15 @@ async def pair_device(
         device_name=data.device_name,
         device_type=data.device_type,
     )
-    return device
+    return DeviceResponse(
+        id=str(device.id),
+        device_id=device.device_id,
+        device_name=device.device_name,
+        device_type=device.device_type,
+        is_active=device.is_active,
+        last_sync_at=device.last_sync_at,
+        created_at=device.created_at,
+    )
 
 
 @router.get("", response_model=List[DeviceResponse])
@@ -43,7 +51,19 @@ async def list_devices(
     current_business: Business = Depends(get_current_business),
 ):
     """List all devices for business."""
-    return await device_service.list_devices(str(current_business.id))
+    devices = await device_service.list_devices(str(current_business.id))
+    return [
+        DeviceResponse(
+            id=str(d.id),
+            device_id=d.device_id,
+            device_name=d.device_name,
+            device_type=d.device_type,
+            is_active=d.is_active,
+            last_sync_at=d.last_sync_at,
+            created_at=d.created_at,
+        )
+        for d in devices
+    ]
 
 
 @router.post("/{device_id}/revoke", status_code=200)

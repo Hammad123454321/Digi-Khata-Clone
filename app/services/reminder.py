@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.models.reminder import Reminder
 from app.models.customer import CustomerBalance
 from app.models.supplier import SupplierBalance
@@ -30,7 +30,13 @@ class ReminderService:
             business_obj_id = PydanticObjectId(business_id)
             entity_obj_id = PydanticObjectId(entity_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or entity ID format")
+            raise ValidationError(
+                "Invalid business or entity ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "entity_id": [f"'{entity_id}' is not a valid ObjectId"],
+                },
+            )
 
         reminder = Reminder(
             business_id=business_obj_id,
@@ -57,7 +63,10 @@ class ReminderService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Reminder.find(Reminder.business_id == business_obj_id)
 

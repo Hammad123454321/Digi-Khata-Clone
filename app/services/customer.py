@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.customer import Customer, CustomerTransaction, CustomerBalance
 from app.models.cash import CashTransaction, CashTransactionType
@@ -28,7 +28,10 @@ class CustomerService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         customer = Customer(
             business_id=business_obj_id,
@@ -84,7 +87,10 @@ class CustomerService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Customer.find(Customer.business_id == business_obj_id)
 
@@ -99,20 +105,8 @@ class CustomerService:
             )
 
         customers = await query.sort("+name").skip(offset).limit(limit).to_list()
-
-        # Load all balances in one query
-        if customers:
-            customer_ids = [c.id for c in customers]
-            balances = await CustomerBalance.find(
-                CustomerBalance.business_id == business_obj_id,
-                CustomerBalance.customer_id.in_(customer_ids),
-            ).to_list()
-            balance_map = {b.customer_id: b.balance for b in balances}
-            
-            # Add balance to each customer (as dynamic attribute)
-            for customer in customers:
-                customer.balance = balance_map.get(customer.id, Decimal("0.00"))
-
+        # Note: balances for each customer are resolved at the API layer when needed,
+        # to avoid mutating Beanie/Pydantic models with undeclared fields.
         return customers
 
     @staticmethod
@@ -133,7 +127,13 @@ class CustomerService:
             business_obj_id = PydanticObjectId(business_id)
             customer_obj_id = PydanticObjectId(customer_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or customer ID format")
+            raise ValidationError(
+                "Invalid business or customer ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "customer_id": [f"'{customer_id}' is not a valid ObjectId"],
+                },
+            )
 
         customer = await CustomerService.get_customer(customer_id, business_id)
 
@@ -235,7 +235,13 @@ class CustomerService:
             business_obj_id = PydanticObjectId(business_id)
             customer_obj_id = PydanticObjectId(customer_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or customer ID format")
+            raise ValidationError(
+                "Invalid business or customer ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "customer_id": [f"'{customer_id}' is not a valid ObjectId"],
+                },
+            )
 
         # Calculate balance from transactions
         credit_transactions = await CustomerTransaction.find(
@@ -295,7 +301,13 @@ class CustomerService:
             business_obj_id = PydanticObjectId(business_id)
             customer_obj_id = PydanticObjectId(customer_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or customer ID format")
+            raise ValidationError(
+                "Invalid business or customer ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "customer_id": [f"'{customer_id}' is not a valid ObjectId"],
+                },
+            )
 
         query = CustomerTransaction.find(
             CustomerTransaction.business_id == business_obj_id,

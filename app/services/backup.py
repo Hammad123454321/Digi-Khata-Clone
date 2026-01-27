@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.models.backup import Backup
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -30,7 +30,10 @@ class BackupService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         file_path = f"backups/{business_id}/{datetime.now(timezone.utc).isoformat()}.backup"
 
@@ -55,7 +58,10 @@ class BackupService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         backups = await Backup.find(
             Backup.business_id == business_obj_id

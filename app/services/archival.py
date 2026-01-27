@@ -5,6 +5,7 @@ from beanie import PydanticObjectId
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.exceptions import ValidationError, BusinessLogicError
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -35,7 +36,10 @@ class ArchivalService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=archive_before_days)
 
@@ -51,7 +55,7 @@ class ArchivalService:
         }
 
         if entity_type not in entity_models:
-            raise ValueError(f"Unsupported entity type: {entity_type}")
+            raise BusinessLogicError(f"Unsupported entity type: {entity_type}")
 
         # TODO: Implement actual archival logic
         # This would:
@@ -94,7 +98,10 @@ class ArchivalService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         recommendations = []
 

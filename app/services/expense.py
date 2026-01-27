@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.expense import ExpenseCategory, Expense, PaymentMode
 from app.models.cash import CashTransaction, CashTransactionType
@@ -26,7 +26,10 @@ class ExpenseService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         category = ExpenseCategory(
             business_id=business_obj_id,
@@ -48,7 +51,10 @@ class ExpenseService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = ExpenseCategory.find(ExpenseCategory.business_id == business_obj_id)
 
@@ -72,7 +78,10 @@ class ExpenseService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         category_obj_id = None
         if category_id:
@@ -168,7 +177,10 @@ class ExpenseService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Expense.find(Expense.business_id == business_obj_id)
 
@@ -198,7 +210,10 @@ class ExpenseService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Get all expenses in range
         expenses = await Expense.find(

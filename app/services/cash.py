@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.cash import CashTransaction, CashBalance, CashTransactionType
 from app.core.logging import get_logger
@@ -33,7 +33,10 @@ class CashService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         user_obj_id = None
         if user_id:
@@ -81,7 +84,10 @@ class CashService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         start_of_day = datetime.combine(balance_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_of_day = datetime.combine(balance_date, datetime.max.time()).replace(tzinfo=timezone.utc)
@@ -142,7 +148,10 @@ class CashService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         start_of_day = datetime.combine(balance_date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_of_day = datetime.combine(balance_date, datetime.max.time()).replace(tzinfo=timezone.utc)
@@ -198,7 +207,10 @@ class CashService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Get opening balance (from previous day's closing balance)
         prev_day_start = datetime.combine((start_date - timedelta(days=1)).date(), datetime.min.time()).replace(tzinfo=timezone.utc)
@@ -243,7 +255,10 @@ class CashService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = CashTransaction.find(CashTransaction.business_id == business_obj_id)
 

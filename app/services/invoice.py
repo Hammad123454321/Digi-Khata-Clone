@@ -4,7 +4,7 @@ from typing import Optional, List
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.models.invoice import Invoice, InvoiceItem, InvoiceType
 from app.models.item import Item
 from app.models.customer import Customer, CustomerTransaction
@@ -24,7 +24,10 @@ class InvoiceService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Get count of invoices for this business
         count = await Invoice.find(Invoice.business_id == business_obj_id).count()
@@ -53,7 +56,10 @@ class InvoiceService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         customer_obj_id = None
         if customer_id:
@@ -224,7 +230,10 @@ class InvoiceService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Invoice.find(Invoice.business_id == business_obj_id)
 

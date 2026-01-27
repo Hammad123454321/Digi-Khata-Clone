@@ -113,10 +113,18 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors."""
+    # Log validation errors for debugging
+    errors = exc.errors()
+    logger.warning(
+        "validation_error",
+        path=request.url.path,
+        method=request.method,
+        errors=errors,
+    )
     origin = request.headers.get("origin", "*")
     response = JSONResponse(
         status_code=422,
-        content={"detail": exc.errors()},
+        content={"detail": errors},
     )
     response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
     response.headers["Access-Control-Allow-Credentials"] = "false"

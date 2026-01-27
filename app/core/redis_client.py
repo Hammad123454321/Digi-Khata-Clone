@@ -5,6 +5,7 @@ from redis.exceptions import RedisError
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.exceptions import ServiceUnavailableError
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -28,10 +29,15 @@ async def get_redis() -> Redis:
             )
             # Test connection
             await redis_client.ping()
-        except (RedisError, Exception) as e:
+        except RedisError as e:
             logger.error("redis_connection_failed", error=str(e))
-            # In production, you might want to raise or use a fallback
-            # For now, we'll raise to ensure Redis is available
+            # Surface as a structured 503, not a raw 500
+            raise ServiceUnavailableError(
+                "Cache service (Redis) is unavailable. Please try again later.",
+                {"error": str(e)},
+            )
+        except Exception as e:
+            logger.error("redis_connection_unexpected_error", error=str(e))
             raise
     return redis_client
 

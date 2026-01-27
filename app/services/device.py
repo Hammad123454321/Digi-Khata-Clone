@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError, AuthenticationError
+from app.core.exceptions import NotFoundError, BusinessLogicError, AuthenticationError, ValidationError
 from app.models.device import Device
 from app.core.security import generate_device_token
 from app.core.config import get_settings
@@ -23,7 +23,13 @@ class DeviceService:
             business_obj_id = PydanticObjectId(business_id)
             user_obj_id = PydanticObjectId(user_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or user ID format")
+            raise ValidationError(
+                "Invalid business or user ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "user_id": [f"'{user_id}' is not a valid ObjectId"],
+                },
+            )
 
         # Check device limit
         device_count = await Device.find(
@@ -88,7 +94,13 @@ class DeviceService:
             business_obj_id = PydanticObjectId(business_id)
             user_obj_id = PydanticObjectId(user_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or user ID format")
+            raise ValidationError(
+                "Invalid business or user ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "user_id": [f"'{user_id}' is not a valid ObjectId"],
+                },
+            )
 
         # Check if device already exists
         device = await Device.find_one(
@@ -141,7 +153,10 @@ class DeviceService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         devices = await Device.find(
             Device.business_id == business_obj_id,

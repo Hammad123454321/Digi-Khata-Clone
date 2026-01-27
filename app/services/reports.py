@@ -9,6 +9,7 @@ from app.models.expense import Expense
 from app.models.cash import CashTransaction, CashTransactionType
 from app.models.item import Item
 from app.core.logging import get_logger
+from app.core.exceptions import ValidationError
 
 logger = get_logger(__name__)
 
@@ -26,7 +27,10 @@ class ReportsService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Get invoices
         invoices = await Invoice.find(
@@ -113,7 +117,10 @@ class ReportsService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         items = await Item.find(
             Item.business_id == business_obj_id,

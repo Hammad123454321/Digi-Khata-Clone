@@ -5,6 +5,7 @@ from beanie import PydanticObjectId
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.exceptions import BusinessLogicError
 from app.models.audit import AuditLog
 from app.models.backup import Backup
 from app.models.business import Business
@@ -224,7 +225,7 @@ class CleanupService:
             dict with update result
         """
         if retention_days > settings.AUDIT_LOG_MAX_RETENTION_DAYS:
-            raise ValueError(
+            raise BusinessLogicError(
                 f"Retention cannot exceed {settings.AUDIT_LOG_MAX_RETENTION_DAYS} days"
             )
 

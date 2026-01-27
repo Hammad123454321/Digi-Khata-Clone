@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.models.item import Item, InventoryTransaction, InventoryTransactionType, LowStockAlert, ItemUnit
 from app.core.logging import get_logger
 
@@ -31,7 +31,10 @@ class StockService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         # Check for duplicate SKU or barcode
         if sku:
@@ -180,7 +183,10 @@ class StockService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Item.find(Item.business_id == business_obj_id)
 
@@ -217,7 +223,13 @@ class StockService:
             business_obj_id = PydanticObjectId(business_id)
             item_obj_id = PydanticObjectId(item_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or item ID format")
+            raise ValidationError(
+                "Invalid business or item ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "item_id": [f"'{item_id}' is not a valid ObjectId"],
+                },
+            )
 
         user_obj_id = None
         if user_id:
@@ -326,7 +338,10 @@ class StockService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = LowStockAlert.find(LowStockAlert.business_id == business_obj_id)
 

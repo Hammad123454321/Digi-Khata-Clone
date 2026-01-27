@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.staff import Staff, StaffSalary
 from app.core.logging import get_logger
@@ -28,7 +28,10 @@ class StaffService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         staff = Staff(
             business_id=business_obj_id,
@@ -76,7 +79,10 @@ class StaffService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Staff.find(Staff.business_id == business_obj_id)
 
@@ -103,7 +109,13 @@ class StaffService:
             business_obj_id = PydanticObjectId(business_id)
             staff_obj_id = PydanticObjectId(staff_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or staff ID format")
+            raise ValidationError(
+                "Invalid business or staff ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "staff_id": [f"'{staff_id}' is not a valid ObjectId"],
+                },
+            )
 
         staff = await StaffService.get_staff(staff_id, business_id)
 

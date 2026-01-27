@@ -2,7 +2,7 @@
 from typing import Optional
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, ConflictError, BusinessLogicError
+from app.core.exceptions import NotFoundError, ConflictError, BusinessLogicError, ValidationError
 from app.models.business import Business
 from app.models.user import User, UserMembership, UserRoleEnum
 from app.core.logging import get_logger
@@ -54,7 +54,10 @@ class BusinessService:
             await membership.insert()
         except (ValueError, TypeError) as e:
             logger.error("invalid_user_id", user_id=user_id, error=str(e))
-            raise ValueError(f"Invalid user ID format: {user_id}")
+            raise ValidationError(
+                "Invalid user ID format",
+                {"user_id": [f"'{user_id}' is not a valid ObjectId"]},
+            )
 
         logger.info("business_created", business_id=str(business.id), user_id=user_id)
 
@@ -118,7 +121,10 @@ class BusinessService:
         try:
             user_obj_id = PydanticObjectId(user_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid user ID format: {user_id}")
+            raise ValidationError(
+                "Invalid user ID format",
+                {"user_id": [f"'{user_id}' is not a valid ObjectId"]},
+            )
 
         memberships = await UserMembership.find(
             UserMembership.user_id == user_obj_id,

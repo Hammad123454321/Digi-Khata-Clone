@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.bank import BankAccount, BankTransaction, BankTransactionType, CashBankTransfer
 from app.models.cash import CashTransaction, CashTransactionType
@@ -30,7 +30,10 @@ class BankService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         account = BankAccount(
             business_id=business_obj_id,
@@ -68,7 +71,13 @@ class BankService:
             business_obj_id = PydanticObjectId(business_id)
             account_obj_id = PydanticObjectId(bank_account_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or bank account ID format")
+            raise ValidationError(
+                "Invalid business or bank account ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "bank_account_id": [f"'{bank_account_id}' is not a valid ObjectId"],
+                },
+            )
 
         account = await BankAccount.find_one(
             BankAccount.id == account_obj_id,
@@ -131,7 +140,10 @@ class BankService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         if transfer_type == "cash_to_bank":
             if not bank_account_id:

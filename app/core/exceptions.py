@@ -54,6 +54,13 @@ class RateLimitError(BaseAppException):
         super().__init__(message, status_code=429, details=details)
 
 
+class ServiceUnavailableError(BaseAppException):
+    """External service (cache, messaging, etc.) unavailable."""
+
+    def __init__(self, message: str = "Service unavailable", details: Dict[str, Any] | None = None):
+        super().__init__(message, status_code=503, details=details)
+
+
 class ConflictError(BaseAppException):
     """Conflict error exception (e.g., duplicate resource)."""
 

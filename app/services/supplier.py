@@ -4,7 +4,7 @@ from typing import Optional, List
 from decimal import Decimal
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError
+from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
 from app.models.supplier import Supplier, SupplierTransaction, SupplierBalance
 from app.core.logging import get_logger
@@ -27,7 +27,10 @@ class SupplierService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         supplier = Supplier(
             business_id=business_obj_id,
@@ -83,7 +86,10 @@ class SupplierService:
         try:
             business_obj_id = PydanticObjectId(business_id)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid business ID format: {business_id}")
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
 
         query = Supplier.find(Supplier.business_id == business_obj_id)
 
@@ -128,7 +134,13 @@ class SupplierService:
             business_obj_id = PydanticObjectId(business_id)
             supplier_obj_id = PydanticObjectId(supplier_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or supplier ID format")
+            raise ValidationError(
+                "Invalid business or supplier ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "supplier_id": [f"'{supplier_id}' is not a valid ObjectId"],
+                },
+            )
 
         supplier = await SupplierService.get_supplier(supplier_id, business_id)
 
@@ -193,7 +205,13 @@ class SupplierService:
             business_obj_id = PydanticObjectId(business_id)
             supplier_obj_id = PydanticObjectId(supplier_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or supplier ID format")
+            raise ValidationError(
+                "Invalid business or supplier ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "supplier_id": [f"'{supplier_id}' is not a valid ObjectId"],
+                },
+            )
 
         supplier = await SupplierService.get_supplier(supplier_id, business_id)
 
@@ -310,7 +328,13 @@ class SupplierService:
             business_obj_id = PydanticObjectId(business_id)
             supplier_obj_id = PydanticObjectId(supplier_id)
         except (ValueError, TypeError):
-            raise ValueError("Invalid business or supplier ID format")
+            raise ValidationError(
+                "Invalid business or supplier ID format",
+                {
+                    "business_id": [f"'{business_id}' is not a valid ObjectId"],
+                    "supplier_id": [f"'{supplier_id}' is not a valid ObjectId"],
+                },
+            )
 
         # Calculate balance from transactions
         purchase_transactions = await SupplierTransaction.find(
