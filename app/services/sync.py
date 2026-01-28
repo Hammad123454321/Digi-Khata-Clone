@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Tuple
 from decimal import Decimal
 from beanie import PydanticObjectId
+from beanie.operators import In
 
 from app.core.exceptions import BusinessLogicError, NotFoundError, ValidationError
 from app.models.sync import SyncChangeLog, SyncAction
@@ -82,7 +83,7 @@ class SyncService:
 
         # Filter by entity types if specified
         if entity_types:
-            query = query.find(SyncChangeLog.entity_type.in_(entity_types))
+            query = query.find(In(SyncChangeLog.entity_type, entity_types))
 
         # Exclude changes made by this device (to avoid circular sync)
         # MongoDB query: $or with device_id null or not equal

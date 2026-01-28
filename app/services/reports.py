@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
+from beanie.operators import In
 
 from app.models.invoice import Invoice, InvoiceType, InvoiceItem
 from app.models.expense import Expense
@@ -58,7 +59,7 @@ class ReportsService:
         # Batch load all items at once to avoid N+1 queries
         items_map = {}
         if item_ids:
-            items = await Item.find(Item.id.in_(list(item_ids))).to_list()
+            items = await Item.find(In(Item.id, list(item_ids))).to_list()
             items_map = {item.id: item for item in items}
         
         # Calculate profit using the pre-loaded items

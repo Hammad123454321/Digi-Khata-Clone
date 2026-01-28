@@ -6,6 +6,7 @@ from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
 from app.models.item import Item
+from beanie.operators import In
 from app.schemas.stock import (
     ItemCreate,
     ItemUpdate,
@@ -199,7 +200,7 @@ async def list_low_stock_alerts(
     result = []
     if alerts:
         item_ids = [alert.item_id for alert in alerts]
-        items = await Item.find(Item.id.in_(item_ids)).to_list()
+        items = await Item.find(In(Item.id, item_ids)).to_list()
         items_dict = {item.id: item.name for item in items}
         
         for alert in alerts:

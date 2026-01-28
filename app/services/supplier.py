@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional, List
 from decimal import Decimal
 from beanie import PydanticObjectId
+from beanie.operators import In
 
 from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
@@ -109,7 +110,7 @@ class SupplierService:
             supplier_ids = [s.id for s in suppliers]
             balances = await SupplierBalance.find(
                 SupplierBalance.business_id == business_obj_id,
-                SupplierBalance.supplier_id.in_(supplier_ids),
+                In(SupplierBalance.supplier_id, supplier_ids),
             ).to_list()
             balance_map = {b.supplier_id: b.balance for b in balances}
             

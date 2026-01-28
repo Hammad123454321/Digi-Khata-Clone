@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
+from beanie.operators import In
 
 from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
@@ -230,7 +231,7 @@ class ExpenseService:
         
         if category_ids:
             categories = await ExpenseCategory.find(
-                ExpenseCategory.id.in_(list(category_ids))
+                In(ExpenseCategory.id, list(category_ids))
             ).to_list()
             category_map = {c.id: c.name for c in categories}
             
