@@ -42,3 +42,15 @@ async def verify_pin(data: PINVerify, current_user: User = Depends(get_current_u
         raise AuthenticationError("Invalid PIN")
     return {"valid": True}
 
+
+@router.patch("/me/language", response_model=dict)
+async def update_language(language: str, current_user: User = Depends(get_current_user)):
+    """Update current user's language preference."""
+    if language not in ("en", "ur", "ar"):
+        raise HTTPException(status_code=400, detail="Invalid language. Allowed values: en, ur, ar")
+
+    current_user.language_preference = language
+    await current_user.save()
+
+    return {"language_preference": current_user.language_preference}
+

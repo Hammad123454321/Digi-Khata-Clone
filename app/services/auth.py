@@ -160,6 +160,8 @@ class AuthService:
                 "phone": user.phone,
                 "name": user.name,
                 "email": user.get_email() if hasattr(user, 'get_email') else user.email,
+                "language_preference": user.language_preference,
+                "default_business_id": str(user.default_business_id) if user.default_business_id else None,
             },
             "businesses": [
                 {
@@ -170,6 +172,8 @@ class AuthService:
                 for business in businesses
             ],
             "device": device_info,
+            "language_preference": user.language_preference,
+            "default_business_id": str(user.default_business_id) if user.default_business_id else None,
         }
 
     @staticmethod

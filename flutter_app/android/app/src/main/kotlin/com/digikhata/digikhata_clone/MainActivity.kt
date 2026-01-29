@@ -1,4 +1,4 @@
-package com.digikhata.digikhata_clone
+package com.enshaal.khata
 
 import io.flutter.embedding.android.FlutterActivity
 

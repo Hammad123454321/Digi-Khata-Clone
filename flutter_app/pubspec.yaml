@@ -1,5 +1,5 @@
-name: digikhata_clone
-description: DigiKhata Clone - Production-ready Flutter application for business accounting
+name: enshaal_khata
+description: Enshaal Khata - Production-ready Flutter application for business accounting
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -99,11 +99,23 @@ dev_dependencies:
   json_serializable: ^6.7.1
   freezed: ^2.4.6
   injectable_generator: ^2.4.1
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
 
   assets:
+    - app-logo.jpeg
     - assets/images/
     - assets/icons/
+
+flutter_icons:
+  android: true
+  ios: true
+  web:
+    generate: true
+    image_path: "app-logo.jpeg"
+    background_color: "#FFFFFF"
+    theme_color: "#E53935"
+  image_path: "app-logo.jpeg"
 

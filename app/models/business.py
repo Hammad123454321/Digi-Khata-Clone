@@ -1,10 +1,20 @@
 """Business model."""
 from typing import Optional
+import enum
 from pydantic import Field
 from beanie import Indexed
 
 from app.models.base import BaseModel
 from app.core.security import encrypt_data, decrypt_data
+
+
+class BusinessTypeEnum(str, enum.Enum):
+    RETAIL_SHOP = "retail_shop"
+    WHOLESALE = "wholesale"
+    SERVICES = "services"
+    MANUFACTURING = "manufacturing"
+    RESTAURANT_FOOD = "restaurant_food"
+    OTHER = "other"
 
 
 class Business(BaseModel):
@@ -15,8 +25,10 @@ class Business(BaseModel):
     email: Optional[str] = Field(default=None)  # Encrypted email
     address: Optional[str] = None
     is_active: bool = Field(default=True)
-    language_preference: str = Field(default="en")  # en, ur
+    language_preference: str = Field(default="en")  # en, ur, ar
     max_devices: int = Field(default=3)
+    business_type: BusinessTypeEnum = Field(default=BusinessTypeEnum.OTHER)
+    custom_business_type: Optional[str] = None  # For "Other" option
 
     class Settings:
         name = "businesses"

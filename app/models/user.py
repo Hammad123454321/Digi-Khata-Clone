@@ -26,6 +26,8 @@ class User(BaseModel):
     is_active: bool = Field(default=True)
     pin_hash: Optional[str] = None  # Optional PIN for app lock
     last_login_at: Optional[datetime] = None
+    language_preference: str = Field(default="en")  # en, ur, ar
+    default_business_id: Optional[PydanticObjectId] = None
 
     class Settings:
         name = "users"

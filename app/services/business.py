@@ -3,7 +3,7 @@ from typing import Optional
 from beanie import PydanticObjectId
 
 from app.core.exceptions import NotFoundError, ConflictError, BusinessLogicError, ValidationError
-from app.models.business import Business
+from app.models.business import Business, BusinessTypeEnum
 from app.models.user import User, UserMembership, UserRoleEnum
 from app.core.logging import get_logger
 
@@ -22,6 +22,8 @@ class BusinessService:
         address: Optional[str] = None,
         language_preference: str = "en",
         max_devices: int = 3,
+        business_type: BusinessTypeEnum = BusinessTypeEnum.OTHER,
+        custom_business_type: Optional[str] = None,
     ) -> Business:
         """Create a new business and add user as owner."""
         # Check if phone already exists
@@ -37,6 +39,8 @@ class BusinessService:
             language_preference=language_preference,
             max_devices=max_devices,
             is_active=True,
+            business_type=business_type,
+            custom_business_type=custom_business_type,
         )
         if email:
             business.set_email(email)

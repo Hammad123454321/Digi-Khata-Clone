@@ -1,9 +1,10 @@
 """Business endpoints."""
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from beanie import PydanticObjectId
 
 from app.api.dependencies import get_current_user, get_current_business, require_role
-from app.models.user import User
+from app.models.user import User, UserMembership
 from app.models.business import Business
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessResponse
 from app.services.business import business_service
@@ -25,6 +26,8 @@ async def create_business(
         address=data.address,
         language_preference=data.language_preference,
         max_devices=data.max_devices,
+        business_type=data.business_type,
+        custom_business_type=data.custom_business_type,
     )
     # Convert ObjectId to string for response
     return BusinessResponse(
@@ -36,6 +39,8 @@ async def create_business(
         is_active=business.is_active,
         language_preference=business.language_preference,
         max_devices=business.max_devices,
+        business_type=business.business_type,
+        custom_business_type=business.custom_business_type,
     )
 
 
@@ -56,6 +61,8 @@ async def list_businesses(
             is_active=business.is_active,
             language_preference=business.language_preference,
             max_devices=business.max_devices,
+            business_type=business.business_type,
+            custom_business_type=business.custom_business_type,
         )
         for business in businesses
     ]
@@ -77,6 +84,8 @@ async def get_business(
         is_active=current_business.is_active,
         language_preference=current_business.language_preference,
         max_devices=current_business.max_devices,
+        business_type=current_business.business_type,
+        custom_business_type=current_business.custom_business_type,
     )
 
 
@@ -105,4 +114,31 @@ async def update_business(
         is_active=business.is_active,
         language_preference=business.language_preference,
         max_devices=business.max_devices,
+        business_type=business.business_type,
+        custom_business_type=business.custom_business_type,
     )
+
+
+@router.post("/{business_id}/set-default", response_model=dict)
+async def set_default_business(
+    business_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Set the default business for the current user."""
+    try:
+        business_obj_id = PydanticObjectId(business_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid business ID format")
+
+    membership = await UserMembership.find_one(
+        UserMembership.user_id == current_user.id,
+        UserMembership.business_id == business_obj_id,
+        UserMembership.is_active == True,
+    )
+    if not membership:
+        raise HTTPException(status_code=403, detail="You do not have access to this business")
+
+    current_user.default_business_id = business_obj_id
+    await current_user.save()
+
+    return {"default_business_id": str(current_user.default_business_id)}

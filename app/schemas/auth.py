@@ -57,4 +57,6 @@ class TokenResponse(BaseModel):
     user: dict
     businesses: Optional[list] = None
     device: Optional[dict] = None
+    language_preference: str = "en"
+    default_business_id: Optional[str] = None
 
