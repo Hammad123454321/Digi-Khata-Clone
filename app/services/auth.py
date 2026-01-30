@@ -13,6 +13,7 @@ from app.core.security import (
 from app.core.config import get_settings
 from app.core.redis_client import get_redis
 from app.core.exceptions import AuthenticationError, BusinessLogicError, NotFoundError
+from app.core.translations import translate
 from app.models.user import User, UserMembership, UserRoleEnum
 from app.models.business import Business
 from app.services.sms import sms_service
@@ -26,7 +27,7 @@ class AuthService:
     """Authentication service."""
 
     @staticmethod
-    async def request_otp(phone: str) -> Dict[str, Any]:
+    async def request_otp(phone: str, language: str = "en") -> Dict[str, Any]:
         """Request OTP for phone number."""
         # Normalize phone number
         phone = phone.strip().replace(" ", "").replace("-", "")
@@ -37,7 +38,7 @@ class AuthService:
         attempts = await redis.get(rate_limit_key)
         if attempts and int(attempts) >= settings.OTP_MAX_ATTEMPTS:
             raise BusinessLogicError(
-                f"Maximum OTP attempts reached. Please try again after {settings.OTP_EXPIRE_MINUTES} minutes."
+                translate("max_otp_attempts", language, minutes=settings.OTP_EXPIRE_MINUTES)
             )
 
         # Generate OTP
@@ -56,10 +57,13 @@ class AuthService:
 
         logger.info("otp_requested", phone=phone)
 
-        return {"message": "OTP sent successfully", "expires_in_minutes": settings.OTP_EXPIRE_MINUTES}
+        return {
+            "message": translate("otp_sent_successfully", language) if language != "en" else "OTP sent successfully",
+            "expires_in_minutes": settings.OTP_EXPIRE_MINUTES
+        }
 
     @staticmethod
-    async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str]) -> Dict[str, Any]:
+    async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str], language: str = "en") -> Dict[str, Any]:
         """Verify OTP and return tokens."""
         phone = phone.strip().replace(" ", "").replace("-", "")
 
@@ -69,7 +73,7 @@ class AuthService:
         stored_otp = await redis.get(otp_key)
 
         if not stored_otp or stored_otp != otp:
-            raise AuthenticationError("Invalid or expired OTP")
+            raise AuthenticationError(translate("invalid_or_expired_otp", language))
 
         # Delete OTP after successful verification
         await redis.delete(otp_key)
@@ -109,45 +113,55 @@ class AuthService:
         await redis.setex(refresh_key, settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60, refresh_token)
 
         # Handle device registration if provided
+        # Note: Device registration requires at least one business.
+        # If user has no businesses, device registration is skipped.
+        # User should create a business first, then register device.
         device_info = None
-        if device_id:
+        if device_id and businesses:
             from app.models.device import Device
             from app.core.security import generate_device_token
 
-            # Get first business for device registration (user can add more later)
-            if businesses:
-                business = businesses[0]
-                # Check device limit
-                device_count = await Device.find(
-                    Device.business_id == business.id,
-                    Device.is_active == True,
-                ).count()
+            # Use first business for device registration (user can add more businesses later)
+            business = businesses[0]
+            # Check device limit
+            device_count = await Device.find(
+                Device.business_id == business.id,
+                Device.is_active == True,
+            ).count()
 
-                if device_count >= business.max_devices:
-                    raise BusinessLogicError(f"Maximum device limit ({business.max_devices}) reached for this business")
+            if device_count >= business.max_devices:
+                raise BusinessLogicError(translate("max_devices_reached", language, limit=business.max_devices))
 
-                # Check if device already exists
-                device = await Device.find_one(
-                    Device.device_id == device_id,
-                    Device.business_id == business.id,
+            # Check if device already exists
+            device = await Device.find_one(
+                Device.device_id == device_id,
+                Device.business_id == business.id,
+            )
+
+            if device:
+                device.is_active = True
+                device.last_sync_at = datetime.now(timezone.utc)
+                await device.save()
+            else:
+                device = Device(
+                    business_id=business.id,
+                    user_id=user.id,
+                    device_id=device_id,
+                    device_name=device_name or "Unknown Device",
+                    is_active=True,
+                    last_sync_at=datetime.now(timezone.utc),
                 )
+                await device.insert()
 
-                if device:
-                    device.is_active = True
-                    device.last_sync_at = datetime.now(timezone.utc)
-                    await device.save()
-                else:
-                    device = Device(
-                        business_id=business.id,
-                        user_id=user.id,
-                        device_id=device_id,
-                        device_name=device_name or "Unknown Device",
-                        is_active=True,
-                        last_sync_at=datetime.now(timezone.utc),
-                    )
-                    await device.insert()
-
-                device_info = {"device_id": device.device_id, "business_id": str(business.id)}
+            device_info = {"device_id": device.device_id, "business_id": str(business.id)}
+        elif device_id and not businesses:
+            # Log that device registration was skipped due to no businesses
+            logger.info(
+                "device_registration_skipped_no_business",
+                user_id=str(user.id),
+                device_id=device_id,
+                message="User has no businesses. Device registration skipped. Create a business first."
+            )
 
         logger.info("user_authenticated", user_id=str(user.id), phone=phone)
 

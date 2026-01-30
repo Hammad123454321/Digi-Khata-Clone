@@ -16,6 +16,7 @@ from app.core.redis_client import close_redis
 from app.core.middleware import LoggingMiddleware
 from app.core.exceptions import BaseAppException
 from app.core.secrets import validate_startup_secrets
+from app.core.translations import translate, get_user_language
 from app.services.scheduler import start_scheduler, stop_scheduler
 from app.api.v1.router import api_router
 
@@ -101,10 +102,20 @@ async def app_exception_handler(request: Request, exc: BaseAppException):
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Handle HTTP exceptions."""
+    language = get_user_language(request=request)
     origin = request.headers.get("origin", "*")
+    
+    # Translate common error messages
+    detail = exc.detail
+    if isinstance(detail, str):
+        # Try to translate if it matches a known key
+        translated = translate(detail.lower().replace(" ", "_"), language)
+        if translated != detail.lower().replace(" ", "_"):
+            detail = translated
+    
     response = JSONResponse(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
+        content={"detail": detail},
     )
     response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
     response.headers["Access-Control-Allow-Credentials"] = "false"
@@ -133,11 +144,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle all other exceptions."""
+    language = get_user_language(request=request)
     origin = request.headers.get("origin", "*")
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     response = JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={"detail": translate("internal_server_error", language)},
     )
     response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
     response.headers["Access-Control-Allow-Credentials"] = "false"

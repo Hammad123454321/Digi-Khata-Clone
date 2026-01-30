@@ -1,6 +1,6 @@
 """Supplier service."""
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from decimal import Decimal
 from beanie import PydanticObjectId
 from beanie.operators import In
@@ -82,7 +82,7 @@ class SupplierService:
         search: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[Supplier]:
+    ) -> Tuple[List[Supplier], dict[PydanticObjectId, Decimal]]:
         """List suppliers."""
         try:
             business_obj_id = PydanticObjectId(business_id)
@@ -106,6 +106,7 @@ class SupplierService:
         suppliers = await query.sort("+name").skip(offset).limit(limit).to_list()
 
         # Load all balances in one query
+        balance_map: dict[PydanticObjectId, Decimal] = {}
         if suppliers:
             supplier_ids = [s.id for s in suppliers]
             balances = await SupplierBalance.find(
@@ -113,11 +114,8 @@ class SupplierService:
                 In(SupplierBalance.supplier_id, supplier_ids),
             ).to_list()
             balance_map = {b.supplier_id: b.balance for b in balances}
-            
-            for supplier in suppliers:
-                supplier.balance = balance_map.get(supplier.id, Decimal("0.00"))
 
-        return suppliers
+        return suppliers, balance_map
 
     @staticmethod
     async def record_payment(

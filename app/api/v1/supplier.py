@@ -47,7 +47,7 @@ async def list_suppliers(
     current_business: Business = Depends(get_current_business),
 ):
     """List suppliers."""
-    suppliers = await supplier_service.list_suppliers(
+    suppliers, balance_map = await supplier_service.list_suppliers(
         business_id=str(current_business.id),
         is_active=is_active,
         search=search,
@@ -63,7 +63,7 @@ async def list_suppliers(
             email=s.get_email() if hasattr(s, 'get_email') else s.email,
             address=s.address,
             is_active=s.is_active,
-            balance=None,
+            balance=balance_map.get(s.id, Decimal("0.00")),
         )
         for s in suppliers
     ]
