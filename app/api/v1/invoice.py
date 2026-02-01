@@ -46,6 +46,10 @@ async def create_invoice(
         logger = get_logger(__name__)
         logger.error("pdf_generation_failed", invoice_id=str(invoice.id), error=str(e))
     
+    # Load invoice items separately (Invoice model doesn't have items field)
+    from app.models.invoice import InvoiceItem
+    invoice_items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+    
     # Convert ObjectIds to strings for response
     items = [
         InvoiceItemResponse(
@@ -56,8 +60,8 @@ async def create_invoice(
             unit_price=item.unit_price,
             total_price=item.total_price,
         )
-        for item in invoice.items
-    ] if invoice.items else []
+        for item in invoice_items
+    ]
     
     return InvoiceResponse(
         id=str(invoice.id),
@@ -123,6 +127,10 @@ async def get_invoice(
     """Get invoice details."""
     invoice = await invoice_service.get_invoice(invoice_id, str(current_business.id))
     
+    # Load invoice items separately (Invoice model doesn't have items field)
+    from app.models.invoice import InvoiceItem
+    invoice_items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+    
     # Convert ObjectIds to strings for response
     items = [
         InvoiceItemResponse(
@@ -133,8 +141,8 @@ async def get_invoice(
             unit_price=item.unit_price,
             total_price=item.total_price,
         )
-        for item in invoice.items
-    ] if invoice.items else []
+        for item in invoice_items
+    ]
     
     return InvoiceResponse(
         id=str(invoice.id),

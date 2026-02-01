@@ -217,8 +217,8 @@ class InvoiceService:
         if not invoice:
             raise NotFoundError("Invoice not found")
 
-        # Load items separately
-        invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+        # Note: Items are loaded separately in the endpoint, not here
+        # This keeps the Invoice model clean and avoids Pydantic validation issues
 
         return invoice
 

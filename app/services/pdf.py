@@ -40,14 +40,16 @@ class PDFService:
         if not invoice:
             raise NotFoundError("Invoice not found")
 
-        # Load related data
-        invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+        # Load related data - store items in a variable instead of assigning to invoice
+        invoice_items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
         
+        business = None
         if invoice.business_id:
-            invoice.business = await Business.get(invoice.business_id)
+            business = await Business.get(invoice.business_id)
         
+        customer = None
         if invoice.customer_id:
-            invoice.customer = await Customer.get(invoice.customer_id)
+            customer = await Customer.get(invoice.customer_id)
 
         # Create PDF in memory
         buffer = io.BytesIO()
@@ -88,7 +90,8 @@ class PDFService:
         story.append(Spacer(1, 0.2*inch))
 
         # Business details
-        business = invoice.business
+        if not business:
+            raise NotFoundError("Business not found for invoice")
         business_data = [
             [Paragraph(f"<b>{business.name}</b>", header_style)],
         ]
@@ -121,8 +124,7 @@ class PDFService:
         ]
 
         customer_info = []
-        if invoice.customer:
-            customer = invoice.customer
+        if customer:
             customer_info = [
                 [Paragraph("<b>Bill To:</b>", normal_style)],
                 [Paragraph(f"<b>{customer.name}</b>", header_style)],
@@ -178,7 +180,7 @@ class PDFService:
             ['Item', 'Quantity', 'Unit Price', 'Total']
         ]
 
-        for item in invoice.items:
+        for item in invoice_items:
             items_data.append([
                 Paragraph(item.item_name, normal_style),
                 Paragraph(str(item.quantity), normal_style),
