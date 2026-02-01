@@ -106,6 +106,13 @@ class InvoiceService:
                 pass
 
         # Create invoice
+        # Normalize remarks: convert empty string to None, strip whitespace
+        normalized_remarks = None
+        if remarks:
+            normalized_remarks = remarks.strip() if isinstance(remarks, str) else str(remarks).strip()
+            if not normalized_remarks:
+                normalized_remarks = None
+        
         invoice = Invoice(
             business_id=business_obj_id,
             customer_id=customer_obj_id,
@@ -117,7 +124,7 @@ class InvoiceService:
             discount_amount=discount_amount,
             total_amount=total_amount,
             paid_amount=Decimal("0.00") if invoice_type == "credit" else total_amount,
-            remarks=remarks,
+            remarks=normalized_remarks,
             created_by_user_id=user_obj_id,
         )
         await invoice.insert()

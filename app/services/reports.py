@@ -40,36 +40,56 @@ class ReportsService:
             Invoice.date <= end_date,
         ).to_list()
 
-        # Load items for each invoice
-        for invoice in invoices:
-            invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+        # Load items for each invoice - store in a separate dict to avoid model field issues
+        invoice_items_map = {}
+        invoice_ids = [invoice.id for invoice in invoices]
+        if invoice_ids:
+            try:
+                all_items = await InvoiceItem.find(In(InvoiceItem.invoice_id, invoice_ids)).to_list()
+                for item in all_items:
+                    if item.invoice_id not in invoice_items_map:
+                        invoice_items_map[item.invoice_id] = []
+                    invoice_items_map[item.invoice_id].append(item)
+            except Exception as e:
+                logger.error("sales_report_items_error", business_id=business_id, error=str(e), exc_info=True)
+                # Continue with empty items_map if there's an error
 
-        total_sales = sum(inv.total_amount for inv in invoices)
-        cash_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CASH)
-        credit_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CREDIT)
+        total_sales = sum(inv.total_amount for inv in invoices) or Decimal("0.00")
+        cash_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CASH) or Decimal("0.00")
+        credit_sales = sum(inv.total_amount for inv in invoices if inv.invoice_type == InvoiceType.CREDIT) or Decimal("0.00")
 
         # Calculate profit (sale price - purchase price)
         # First, collect all unique item IDs
         item_ids = set()
-        for invoice in invoices:
-            for item in invoice.items:
+        for invoice_id, items in invoice_items_map.items():
+            for item in items:
                 if item.item_id:
                     item_ids.add(item.item_id)
         
         # Batch load all items at once to avoid N+1 queries
         items_map = {}
         if item_ids:
-            items = await Item.find(In(Item.id, list(item_ids))).to_list()
-            items_map = {item.id: item for item in items}
+            try:
+                items = await Item.find(In(Item.id, list(item_ids))).to_list()
+                items_map = {item.id: item for item in items}
+            except Exception as e:
+                logger.error("sales_report_item_lookup_error", business_id=business_id, error=str(e), exc_info=True)
+                # Continue with empty items_map if there's an error
         
         # Calculate profit using the pre-loaded items
         total_profit = Decimal("0.00")
-        for invoice in invoices:
-            for item in invoice.items:
+        for invoice_id, items in invoice_items_map.items():
+            for item in items:
                 if item.item_id and item.item_id in items_map:
-                    item_obj = items_map[item.item_id]
-                    profit_per_unit = item.unit_price - item_obj.purchase_price
-                    total_profit += profit_per_unit * item.quantity
+                    try:
+                        item_obj = items_map[item.item_id]
+                        # Handle None purchase_price (shouldn't happen but safety check)
+                        purchase_price = item_obj.purchase_price if item_obj.purchase_price is not None else Decimal("0.00")
+                        profit_per_unit = item.unit_price - purchase_price
+                        total_profit += profit_per_unit * item.quantity
+                    except Exception as e:
+                        logger.warning("sales_report_profit_calc_error", item_id=str(item.item_id), error=str(e))
+                        # Continue with next item if calculation fails
 
         return {
             "start_date": start_date,
@@ -155,20 +175,36 @@ class ReportsService:
         end_date: datetime,
     ) -> dict:
         """Get profit & loss summary."""
-        # Get sales
-        sales_report = await ReportsService.get_sales_report(business_id, start_date, end_date)
+        try:
+            # Get sales
+            sales_report = await ReportsService.get_sales_report(business_id, start_date, end_date)
+        except Exception as e:
+            logger.error("profit_loss_sales_error", business_id=business_id, error=str(e), exc_info=True)
+            sales_report = {
+                "total_sales": Decimal("0.00"),
+                "total_profit": Decimal("0.00"),
+            }
 
-        # Get expenses
-        expense_report = await ReportsService.get_expense_report(business_id, start_date, end_date)
+        try:
+            # Get expenses
+            expense_report = await ReportsService.get_expense_report(business_id, start_date, end_date)
+        except Exception as e:
+            logger.error("profit_loss_expense_error", business_id=business_id, error=str(e), exc_info=True)
+            expense_report = {
+                "total_expenses": Decimal("0.00"),
+            }
 
-        net_profit = sales_report["total_profit"] - expense_report["total_expenses"]
+        total_revenue = sales_report.get("total_sales", Decimal("0.00"))
+        total_profit = sales_report.get("total_profit", Decimal("0.00"))
+        total_expenses = expense_report.get("total_expenses", Decimal("0.00"))
+        net_profit = total_profit - total_expenses
 
         return {
             "start_date": start_date,
             "end_date": end_date,
-            "total_revenue": sales_report["total_sales"],
-            "total_profit": sales_report["total_profit"],
-            "total_expenses": expense_report["total_expenses"],
+            "total_revenue": total_revenue,
+            "total_profit": total_profit,
+            "total_expenses": total_expenses,
             "net_profit": net_profit,
         }
 

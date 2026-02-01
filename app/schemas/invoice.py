@@ -23,7 +23,7 @@ class InvoiceCreate(BaseModel):
     items: List[InvoiceItemCreate] = Field(..., min_items=1)
     tax_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     discount_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
-    remarks: Optional[str] = None
+    remarks: Optional[str] = Field(None, max_length=1000)
 
 
 class InvoiceItemResponse(BaseModel):
