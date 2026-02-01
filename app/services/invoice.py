@@ -270,9 +270,8 @@ class InvoiceService:
             else:
                 invoices = [inv for inv in invoices if inv.paid_amount < inv.total_amount]
 
-        # Load items for each invoice
-        for invoice in invoices:
-            invoice.items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+        # Note: Items are not loaded here since list endpoint only returns summary info
+        # Items are loaded separately in get_invoice endpoint when needed
 
         return invoices
 
