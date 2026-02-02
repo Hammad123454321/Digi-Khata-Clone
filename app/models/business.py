@@ -11,6 +11,7 @@ from app.core.security import encrypt_data, decrypt_data
 class BusinessTypeEnum(str, enum.Enum):
     RETAIL_SHOP = "retail_shop"
     WHOLESALE = "wholesale"
+    DISTRIBUTOR = "distributor"
     SERVICES = "services"
     MANUFACTURING = "manufacturing"
     RESTAURANT_FOOD = "restaurant_food"
@@ -22,8 +23,12 @@ class Business(BaseModel):
 
     name: Indexed(str)
     phone: Indexed(str, unique=True)  # Keep unencrypted for lookups
+    owner_name: Optional[str] = None
     email: Optional[str] = Field(default=None)  # Encrypted email
     address: Optional[str] = None
+    area: Optional[str] = None
+    city: Optional[str] = None
+    business_category: Optional[str] = None
     is_active: bool = Field(default=True)
     language_preference: str = Field(default="en")  # en, ur, ar
     max_devices: int = Field(default=3)

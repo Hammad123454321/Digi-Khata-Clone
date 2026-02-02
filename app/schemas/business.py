@@ -10,8 +10,12 @@ class BusinessCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     phone: str = Field(..., min_length=10, max_length=20)
+    owner_name: Optional[str] = Field(None, max_length=255)
     email: Optional[str] = Field(None, max_length=255)
     address: Optional[str] = None
+    area: Optional[str] = None
+    city: Optional[str] = None
+    business_category: Optional[str] = Field(None, max_length=255)
     language_preference: str = Field(default="en", pattern="^(en|ur|ar)$")
     max_devices: int = Field(default=3, ge=1, le=10)
     business_type: BusinessTypeEnum = Field(default=BusinessTypeEnum.OTHER)
@@ -29,8 +33,12 @@ class BusinessUpdate(BaseModel):
     """Business update schema."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    owner_name: Optional[str] = Field(None, max_length=255)
     email: Optional[str] = Field(None, max_length=255)
     address: Optional[str] = None
+    area: Optional[str] = None
+    city: Optional[str] = None
+    business_category: Optional[str] = Field(None, max_length=255)
     language_preference: Optional[str] = Field(None, pattern="^(en|ur|ar)$")
     max_devices: Optional[int] = Field(None, ge=1, le=10)
 
@@ -41,8 +49,12 @@ class BusinessResponse(BaseModel):
     id: str
     name: str
     phone: str
+    owner_name: Optional[str]
     email: Optional[str]
     address: Optional[str]
+    area: Optional[str]
+    city: Optional[str]
+    business_category: Optional[str]
     is_active: bool
     language_preference: str
     max_devices: int
@@ -51,4 +63,3 @@ class BusinessResponse(BaseModel):
 
     class Config:
         from_attributes = True
-

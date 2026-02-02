@@ -18,8 +18,12 @@ class BusinessService:
         name: str,
         phone: str,
         user_id: str,  # ObjectId string
+        owner_name: Optional[str] = None,
         email: Optional[str] = None,
         address: Optional[str] = None,
+        area: Optional[str] = None,
+        city: Optional[str] = None,
+        business_category: Optional[str] = None,
         language_preference: str = "en",
         max_devices: int = 3,
         business_type: BusinessTypeEnum = BusinessTypeEnum.OTHER,
@@ -35,7 +39,11 @@ class BusinessService:
         business = Business(
             name=name,
             phone=phone,
+            owner_name=owner_name,
             address=address,
+            area=area,
+            city=city,
+            business_category=business_category,
             language_preference=language_preference,
             max_devices=max_devices,
             is_active=True,
@@ -84,8 +92,12 @@ class BusinessService:
     async def update_business(
         business_id: str,
         name: Optional[str] = None,
+        owner_name: Optional[str] = None,
         email: Optional[str] = None,
         address: Optional[str] = None,
+        area: Optional[str] = None,
+        city: Optional[str] = None,
+        business_category: Optional[str] = None,
         language_preference: Optional[str] = None,
         max_devices: Optional[int] = None,
     ) -> Business:
@@ -94,10 +106,18 @@ class BusinessService:
 
         if name is not None:
             business.name = name
+        if owner_name is not None:
+            business.owner_name = owner_name
         if email is not None:
             business.set_email(email)
         if address is not None:
             business.address = address
+        if area is not None:
+            business.area = area
+        if city is not None:
+            business.city = city
+        if business_category is not None:
+            business.business_category = business_category
         if language_preference is not None:
             business.language_preference = language_preference
         if max_devices is not None:
