@@ -49,9 +49,9 @@ class InvoiceService:
         user_id: Optional[str] = None,
     ) -> Invoice:
         """Create a new invoice."""
-        # Validate customer required for credit invoices
-        if invoice_type == "credit" and not customer_id:
-            raise BusinessLogicError("Customer is required for credit sales")
+        # Validate customer is required for all invoices
+        if not customer_id:
+            raise BusinessLogicError("Customer is required for all invoices")
         
         try:
             business_obj_id = PydanticObjectId(business_id)
@@ -61,18 +61,17 @@ class InvoiceService:
                 {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
             )
 
-        customer_obj_id = None
-        if customer_id:
-            try:
-                customer_obj_id = PydanticObjectId(customer_id)
-                customer = await Customer.find_one(
-                    Customer.id == customer_obj_id,
-                    Customer.business_id == business_obj_id,
-                )
-                if not customer:
-                    raise NotFoundError("Customer not found")
-            except (ValueError, TypeError):
-                raise NotFoundError("Invalid customer ID format")
+        # Validate customer exists and belongs to business
+        try:
+            customer_obj_id = PydanticObjectId(customer_id)
+            customer = await Customer.find_one(
+                Customer.id == customer_obj_id,
+                Customer.business_id == business_obj_id,
+            )
+            if not customer:
+                raise NotFoundError("Customer not found")
+        except (ValueError, TypeError):
+            raise NotFoundError("Invalid customer ID format")
 
         # Validate stock availability BEFORE creating invoice
         from app.services.stock import stock_service

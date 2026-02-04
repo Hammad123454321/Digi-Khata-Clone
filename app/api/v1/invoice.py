@@ -24,7 +24,7 @@ async def create_invoice(
     """Create a new invoice."""
     invoice = await invoice_service.create_invoice(
         business_id=str(current_business.id),
-        customer_id=str(data.customer_id) if data.customer_id else None,
+        customer_id=str(data.customer_id),
         invoice_type=data.invoice_type,
         date=data.date,
         items=[item.model_dump() for item in data.items],

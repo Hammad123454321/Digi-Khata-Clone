@@ -17,7 +17,7 @@ class InvoiceItemCreate(BaseModel):
 class InvoiceCreate(BaseModel):
     """Invoice creation schema."""
 
-    customer_id: Optional[str] = None
+    customer_id: str = Field(..., description="Customer ID is required for all invoices")
     invoice_type: str = Field(..., pattern="^(cash|credit)$")
     date: datetime
     items: List[InvoiceItemCreate] = Field(..., min_items=1)
