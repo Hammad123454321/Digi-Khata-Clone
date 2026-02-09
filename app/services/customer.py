@@ -76,6 +76,19 @@ class CustomerService:
         return customer
 
     @staticmethod
+    async def deactivate_customer(customer_id: str, business_id: str) -> Customer:
+        """Deactivate (soft delete) a customer."""
+        customer = await CustomerService.get_customer(customer_id, business_id)
+        customer.is_active = False
+        await customer.save()
+        logger.info(
+            "customer_deactivated",
+            business_id=business_id,
+            customer_id=customer_id,
+        )
+        return customer
+
+    @staticmethod
     async def list_customers(
         business_id: str,
         is_active: Optional[bool] = None,

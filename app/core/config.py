@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     # SendPK SMS Gateway
     SENDPK_API_KEY: str = Field(default="")
+    SENDPK_USERNAME: str = Field(default="")
+    SENDPK_PASSWORD: str = Field(default="")
     SENDPK_SENDER_ID: str = Field(default="")
     SENDPK_BASE_URL: str = Field(default="https://sendpk.com/api")
 
@@ -138,4 +140,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
-

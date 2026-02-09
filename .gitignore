@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Flutter source lives under flutter_app/lib (tracked)
 lib64/
 parts/
 sdist/
@@ -70,3 +70,4 @@ tmp/
 temp/
 *.tmp
 
+flutter_app/

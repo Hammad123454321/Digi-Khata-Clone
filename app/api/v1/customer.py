@@ -103,6 +103,15 @@ async def get_customer(
     )
 
 
+@router.delete("/{customer_id}", status_code=204)
+async def delete_customer(
+    customer_id: str,
+    current_business: Business = Depends(get_current_business),
+):
+    """Deactivate (soft delete) customer."""
+    await customer_service.deactivate_customer(customer_id, str(current_business.id))
+
+
 @router.post("/{customer_id}/payments", response_model=CustomerTransactionResponse, status_code=201)
 async def record_payment(
     customer_id: str,
@@ -165,4 +174,3 @@ async def list_customer_transactions(
         )
         for t in transactions
     ]
-

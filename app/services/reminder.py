@@ -82,6 +82,25 @@ class ReminderService:
         return reminders
 
     @staticmethod
+    async def get_reminder(reminder_id: str, business_id: str) -> Reminder:
+        """Get reminder by ID."""
+        try:
+            reminder_obj_id = PydanticObjectId(reminder_id)
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Reminder not found")
+
+        reminder = await Reminder.find_one(
+            Reminder.id == reminder_obj_id,
+            Reminder.business_id == business_obj_id,
+        )
+
+        if not reminder:
+            raise NotFoundError("Reminder not found")
+
+        return reminder
+
+    @staticmethod
     async def resolve_reminder(reminder_id: str, business_id: str) -> None:
         """Resolve a reminder."""
         try:
@@ -100,6 +119,13 @@ class ReminderService:
 
         reminder.is_resolved = True
         reminder.resolved_at = datetime.now(timezone.utc)
+        await reminder.save()
+
+    @staticmethod
+    async def mark_sent(reminder: Reminder) -> None:
+        """Mark reminder as sent."""
+        reminder.is_sent = True
+        reminder.sent_at = datetime.now(timezone.utc)
         await reminder.save()
 
 

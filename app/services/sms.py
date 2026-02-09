@@ -1,5 +1,6 @@
 """SMS service for SendPK integration."""
 import httpx
+import json
 from typing import Optional
 
 from app.core.config import get_settings
@@ -15,12 +16,14 @@ class SMSService:
 
     def __init__(self):
         self.api_key = settings.SENDPK_API_KEY
+        self.username = settings.SENDPK_USERNAME
+        self.password = settings.SENDPK_PASSWORD
         self.sender_id = settings.SENDPK_SENDER_ID
         # Expected e.g. https://sendpk.com/api  (we'll append /sms.php)
         self.base_url = settings.SENDPK_BASE_URL.rstrip("/")
 
     async def send_otp(self, phone: str, otp: str) -> bool:
-        """Send OTP via SendPK transactional/OTP route."""
+        """Send OTP via SendPK."""
         # Bypass SMS sending in development mode
         if settings.ENVIRONMENT.lower() == "development" or settings.DEBUG:
             logger.info(
@@ -38,26 +41,21 @@ class SMSService:
             return True
 
         try:
-            # SendPK API endpoint for OTP (matches official PHP example)
-            # Final URL: https://sendpk.com/api/sms.php?api_key=API_KEY
+            # SendPK API endpoint
             url = f"{self.base_url}/sms.php"
             message = f"Your OTP is {otp}. Valid for {settings.OTP_EXPIRE_MINUTES} minutes."
 
-            # SendPK expects form-encoded body and api_key in query string
-            params = {"api_key": self.api_key}
-            data = {
-                "sender": self.sender_id,
-                "mobile": phone,
-                "message": message,
-            }
-
+            params = self._build_message_params(phone=phone, message=message)
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, params=params, data=data)
+                response = await client.get(url, params=params)
                 response.raise_for_status()
 
-            # SendPK typically returns a string like "OK" or an error code.
-            logger.info("otp_sent", phone=phone, otp_length=len(otp), response_text=response.text)
+            if not self._is_success_response(response.text):
+                raise BusinessLogicError(
+                    f"SendPK returned error: {response.text.strip() or 'Unknown error'}"
+                )
 
+            logger.info("otp_sent", phone=phone, otp_length=len(otp), response_text=response.text)
             return True
 
         except httpx.HTTPError as e:
@@ -67,20 +65,32 @@ class SMSService:
             logger.error("sms_unexpected_error", phone=phone, error=str(e), exc_info=True)
             raise BusinessLogicError(f"Unexpected error sending OTP: {str(e)}")
 
-    async def send_notification(self, phone: str, message: str) -> bool:
+    async def send_notification(
+        self,
+        phone: str,
+        message: str,
+        template_id: Optional[str] = None,
+    ) -> bool:
         """Send notification SMS."""
         try:
             url = f"{self.base_url}/sms.php"
-            params = {"api_key": self.api_key}
-            data = {
-                "sender": self.sender_id,
-                "mobile": phone,
-                "message": message,
-            }
+            params = self._build_message_params(
+                phone=phone,
+                message=message,
+                template_id=template_id,
+            )
 
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, params=params, data=data)
+                response = await client.get(url, params=params)
                 response.raise_for_status()
+
+            if not self._is_success_response(response.text):
+                logger.error(
+                    "sms_notification_failed",
+                    phone=phone,
+                    response_text=response.text,
+                )
+                return False
 
             logger.info("notification_sent", phone=phone, response_text=response.text)
             return True
@@ -92,7 +102,64 @@ class SMSService:
             logger.error("sms_notification_error", phone=phone, error=str(e), exc_info=True)
             return False
 
+    def _build_auth_params(self) -> dict:
+        """Build SMS provider auth params."""
+        if self.api_key:
+            return {"api_key": self.api_key}
+        if self.username and self.password:
+            return {"username": self.username, "password": self.password}
+        return {}
+
+    def _build_message_params(
+        self,
+        *,
+        phone: str,
+        message: str,
+        template_id: Optional[str] = None,
+    ) -> dict:
+        params = self._build_auth_params()
+        if not params:
+            raise BusinessLogicError("SMS credentials are not configured.")
+        if not self.sender_id:
+            raise BusinessLogicError("SMS sender ID is not configured.")
+
+        params.update(
+            {
+                "sender": self.sender_id,
+                "mobile": phone,
+                "message": message,
+            }
+        )
+
+        if template_id:
+            params["template_id"] = template_id
+
+        if self._is_unicode(message):
+            params["type"] = "unicode"
+
+        return params
+
+    @staticmethod
+    def _is_unicode(message: str) -> bool:
+        return any(ord(char) > 127 for char in message)
+
+    @staticmethod
+    def _is_success_response(response_text: str) -> bool:
+        text = response_text.strip()
+        if not text:
+            return False
+        if text.upper().startswith("OK"):
+            return True
+        if text.startswith("{") or text.startswith("["):
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict):
+                    status = str(payload.get("status") or payload.get("response") or "").upper()
+                    return status == "OK" or payload.get("success") is True
+            except json.JSONDecodeError:
+                return False
+        return False
+
 
 # Singleton instance
 sms_service = SMSService()
-
