@@ -33,23 +33,17 @@ async def create_item(
         sale_price=data.sale_price,
         unit=data.unit,
         opening_stock=data.opening_stock,
-        sku=data.sku,
-        barcode=data.barcode,
-        min_stock_threshold=data.min_stock_threshold,
         description=data.description,
     )
     # Convert ObjectId to string for response
     return ItemResponse(
         id=str(item.id),
         name=item.name,
-        sku=item.sku,
-        barcode=item.barcode,
         purchase_price=item.purchase_price,
         sale_price=item.sale_price,
         unit=item.unit.value,
         opening_stock=item.opening_stock,
         current_stock=item.current_stock,
-        min_stock_threshold=item.min_stock_threshold,
         is_active=item.is_active,
         description=item.description,
     )
@@ -76,14 +70,11 @@ async def list_items(
         ItemResponse(
             id=str(item.id),
             name=item.name,
-            sku=item.sku,
-            barcode=item.barcode,
             purchase_price=item.purchase_price,
             sale_price=item.sale_price,
             unit=item.unit.value,
             opening_stock=item.opening_stock,
             current_stock=item.current_stock,
-            min_stock_threshold=item.min_stock_threshold,
             is_active=item.is_active,
             description=item.description,
         )
@@ -102,14 +93,11 @@ async def get_item(
     return ItemResponse(
         id=str(item.id),
         name=item.name,
-        sku=item.sku,
-        barcode=item.barcode,
         purchase_price=item.purchase_price,
         sale_price=item.sale_price,
         unit=item.unit.value,
         opening_stock=item.opening_stock,
         current_stock=item.current_stock,
-        min_stock_threshold=item.min_stock_threshold,
         is_active=item.is_active,
         description=item.description,
     )
@@ -126,12 +114,9 @@ async def update_item(
         item_id=item_id,
         business_id=str(current_business.id),
         name=data.name,
-        sku=data.sku,
-        barcode=data.barcode,
         purchase_price=data.purchase_price,
         sale_price=data.sale_price,
         unit=data.unit,
-        min_stock_threshold=data.min_stock_threshold,
         description=data.description,
         is_active=data.is_active,
     )
@@ -139,14 +124,11 @@ async def update_item(
     return ItemResponse(
         id=str(item.id),
         name=item.name,
-        sku=item.sku,
-        barcode=item.barcode,
         purchase_price=item.purchase_price,
         sale_price=item.sale_price,
         unit=item.unit.value,
         opening_stock=item.opening_stock,
         current_stock=item.current_stock,
-        min_stock_threshold=item.min_stock_threshold,
         is_active=item.is_active,
         description=item.description,
     )

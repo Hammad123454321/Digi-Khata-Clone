@@ -25,14 +25,11 @@ class Item(BaseModel):
 
     business_id: Indexed(PydanticObjectId, )
     name: Indexed(str, )
-    sku: Optional[Indexed(str, )] = None
-    barcode: Optional[Indexed(str, )] = None
     purchase_price: Decimal
     sale_price: Decimal
     unit: ItemUnit = Field(default=ItemUnit.PIECE)
     opening_stock: Decimal = Field(default=Decimal("0.000"))
     current_stock: Decimal
-    min_stock_threshold: Optional[Decimal] = None  # For low stock alerts
     is_active: bool = Field(default=True)
     description: Optional[str] = None
 

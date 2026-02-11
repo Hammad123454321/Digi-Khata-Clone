@@ -22,9 +22,6 @@ class StockService:
         sale_price: Decimal,
         unit: str,
         opening_stock: Decimal = Decimal("0.000"),
-        sku: Optional[str] = None,
-        barcode: Optional[str] = None,
-        min_stock_threshold: Optional[Decimal] = None,
         description: Optional[str] = None,
     ) -> Item:
         """Create a new item."""
@@ -36,42 +33,18 @@ class StockService:
                 {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
             )
 
-        # Check for duplicate SKU or barcode
-        if sku:
-            existing = await Item.find_one(
-                Item.business_id == business_obj_id,
-                Item.sku == sku,
-            )
-            if existing:
-                raise BusinessLogicError("Item with this SKU already exists")
-
-        if barcode:
-            existing = await Item.find_one(
-                Item.business_id == business_obj_id,
-                Item.barcode == barcode,
-            )
-            if existing:
-                raise BusinessLogicError("Item with this barcode already exists")
-
         item = Item(
             business_id=business_obj_id,
             name=name,
-            sku=sku,
-            barcode=barcode,
             purchase_price=purchase_price,
             sale_price=sale_price,
             unit=ItemUnit(unit),
             opening_stock=opening_stock,
             current_stock=opening_stock,
-            min_stock_threshold=min_stock_threshold,
             description=description,
             is_active=True,
         )
         await item.insert()
-
-        # Check for low stock alert
-        if min_stock_threshold and opening_stock < min_stock_threshold:
-            await StockService._create_low_stock_alert(business_id, str(item.id), opening_stock, min_stock_threshold)
 
         logger.info("item_created", business_id=business_id, item_id=str(item.id), name=name)
         return item
@@ -81,12 +54,9 @@ class StockService:
         item_id: str,
         business_id: str,
         name: Optional[str] = None,
-        sku: Optional[str] = None,
-        barcode: Optional[str] = None,
         purchase_price: Optional[Decimal] = None,
         sale_price: Optional[Decimal] = None,
         unit: Optional[str] = None,
-        min_stock_threshold: Optional[Decimal] = None,
         description: Optional[str] = None,
         is_active: Optional[bool] = None,
     ) -> Item:
@@ -107,41 +77,12 @@ class StockService:
 
         if name is not None:
             item.name = name
-        if sku is not None:
-            # Check for duplicate SKU
-            if sku != item.sku:
-                existing = await Item.find_one(
-                    Item.business_id == business_obj_id,
-                    Item.sku == sku,
-                    Item.id != item_obj_id,
-                )
-                if existing:
-                    raise BusinessLogicError("Item with this SKU already exists")
-            item.sku = sku
-        if barcode is not None:
-            # Check for duplicate barcode
-            if barcode != item.barcode:
-                existing = await Item.find_one(
-                    Item.business_id == business_obj_id,
-                    Item.barcode == barcode,
-                    Item.id != item_obj_id,
-                )
-                if existing:
-                    raise BusinessLogicError("Item with this barcode already exists")
-            item.barcode = barcode
         if purchase_price is not None:
             item.purchase_price = purchase_price
         if sale_price is not None:
             item.sale_price = sale_price
         if unit is not None:
             item.unit = ItemUnit(unit)
-        if min_stock_threshold is not None:
-            item.min_stock_threshold = min_stock_threshold
-            # Check if current stock is below new threshold
-            if item.current_stock < min_stock_threshold:
-                await StockService._create_low_stock_alert(
-                    business_id, item_id, item.current_stock, min_stock_threshold
-                )
         if description is not None:
             item.description = description
         if is_active is not None:
@@ -196,7 +137,7 @@ class StockService:
             import re
             search_regex = re.compile(search, re.IGNORECASE)
             query = query.find(
-                (Item.name == search_regex) | (Item.sku == search_regex) | (Item.barcode == search_regex)
+                (Item.name == search_regex)
             )
 
         items = await query.sort("+name").skip(offset).limit(limit).to_list()
@@ -276,12 +217,6 @@ class StockService:
             item.current_stock = quantity
 
         await item.save()
-
-        # Check for low stock alert
-        if item.min_stock_threshold and item.current_stock < item.min_stock_threshold:
-            await StockService._create_low_stock_alert(
-                business_id, item_id, item.current_stock, item.min_stock_threshold
-            )
 
         logger.info(
             "inventory_transaction_created",

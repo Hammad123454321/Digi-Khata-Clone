@@ -9,13 +9,10 @@ class ItemCreate(BaseModel):
     """Item creation schema."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    sku: Optional[str] = Field(None, max_length=100)
-    barcode: Optional[str] = Field(None, max_length=100)
     purchase_price: Decimal = Field(..., ge=0)
     sale_price: Decimal = Field(..., ge=0)
     unit: str = Field(default="pcs", pattern="^(pcs|kg|liter|meter|box|pack)$")
     opening_stock: Decimal = Field(default=Decimal("0.000"), ge=0)
-    min_stock_threshold: Optional[Decimal] = Field(None, ge=0)
     description: Optional[str] = None
 
     @model_validator(mode='before')
@@ -23,7 +20,7 @@ class ItemCreate(BaseModel):
     def convert_decimal_fields(cls, data: Any) -> Any:
         """Convert numeric fields to Decimal for proper validation."""
         if isinstance(data, dict):
-            decimal_fields = ['purchase_price', 'sale_price', 'opening_stock', 'min_stock_threshold']
+            decimal_fields = ['purchase_price', 'sale_price', 'opening_stock']
             converted = data.copy()
             for field in decimal_fields:
                 if field in converted and converted[field] is not None:
@@ -42,12 +39,9 @@ class ItemUpdate(BaseModel):
     """Item update schema."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    sku: Optional[str] = Field(None, max_length=100)
-    barcode: Optional[str] = Field(None, max_length=100)
     purchase_price: Optional[Decimal] = Field(None, ge=0)
     sale_price: Optional[Decimal] = Field(None, ge=0)
     unit: Optional[str] = Field(None, pattern="^(pcs|kg|liter|meter|box|pack)$")
-    min_stock_threshold: Optional[Decimal] = Field(None, ge=0)
     description: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -57,14 +51,11 @@ class ItemResponse(BaseModel):
 
     id: str
     name: str
-    sku: Optional[str]
-    barcode: Optional[str]
     purchase_price: Decimal
     sale_price: Decimal
     unit: str
     opening_stock: Decimal
     current_stock: Decimal
-    min_stock_threshold: Optional[Decimal]
     is_active: bool
     description: Optional[str]
 
@@ -116,4 +107,3 @@ class LowStockAlertResponse(BaseModel):
 
     class Config:
         from_attributes = True
-

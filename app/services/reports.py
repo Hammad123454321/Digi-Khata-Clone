@@ -318,22 +318,23 @@ class ReportsService:
         ).to_list()
 
         total_items = len(items)
-        low_stock_items = [item for item in items if item.min_stock_threshold and item.current_stock < item.min_stock_threshold]
+        out_of_stock_items = [item for item in items if item.current_stock <= 0]
 
-        total_stock_value = sum(item.current_stock * item.purchase_price for item in items)
+        total_stock_value = sum(item.current_stock * item.sale_price for item in items)
 
         return {
             "total_items": total_items,
-            "low_stock_count": len(low_stock_items),
-            "total_stock_value": total_stock_value,
-            "low_stock_items": [
+            "total_value": str(total_stock_value),
+            "out_of_stock_items": len(out_of_stock_items),
+            "items": [
                 {
                     "id": str(item.id),
                     "name": item.name,
-                    "current_stock": item.current_stock,
-                    "threshold": item.min_stock_threshold,
+                    "current_stock": str(item.current_stock),
+                    "unit": item.unit.value,
+                    "value": str(item.current_stock * item.sale_price),
                 }
-                for item in low_stock_items
+                for item in items
             ],
         }
 
