@@ -67,16 +67,20 @@ class AuthService:
         """Verify OTP and return tokens."""
         phone = phone.strip().replace(" ", "").replace("-", "")
 
-        # Verify OTP from Redis
+        # Verify OTP from Redis (with optional dev-only bypass)
         redis = await get_redis()
         otp_key = f"otp:{phone}"
-        stored_otp = await redis.get(otp_key)
+        bypass_allowed = (settings.ENVIRONMENT.lower() == "development" or settings.DEBUG) and settings.OTP_BYPASS_ENABLED
 
-        if not stored_otp or stored_otp != otp:
-            raise AuthenticationError(translate("invalid_or_expired_otp", language))
-
-        # Delete OTP after successful verification
-        await redis.delete(otp_key)
+        if bypass_allowed and otp == settings.OTP_BYPASS_CODE:
+            logger.info("otp_bypass_used", phone=phone)
+            await redis.delete(otp_key)
+        else:
+            stored_otp = await redis.get(otp_key)
+            if not stored_otp or stored_otp != otp:
+                raise AuthenticationError(translate("invalid_or_expired_otp", language))
+            # Delete OTP after successful verification
+            await redis.delete(otp_key)
 
         # Get or create user
         user = await User.find_one(User.phone == phone)

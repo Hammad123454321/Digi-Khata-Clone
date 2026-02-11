@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     OTP_LENGTH: int = Field(default=6)
     OTP_EXPIRE_MINUTES: int = Field(default=10)
     OTP_MAX_ATTEMPTS: int = Field(default=5)
+    OTP_BYPASS_ENABLED: bool = Field(default=False)
+    OTP_BYPASS_CODE: str = Field(default="000000", min_length=4, max_length=10)
 
     # Backup Settings
     BACKUP_ENABLED: bool = Field(default=True)
