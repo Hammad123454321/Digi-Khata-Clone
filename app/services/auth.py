@@ -67,13 +67,14 @@ class AuthService:
         """Verify OTP and return tokens."""
         phone = phone.strip().replace(" ", "").replace("-", "")
 
-        # Verify OTP from Redis (with optional dev-only bypass)
+        # Verify OTP from Redis (dev mode accepts any valid-length numeric OTP)
         redis = await get_redis()
         otp_key = f"otp:{phone}"
-        bypass_allowed = (settings.ENVIRONMENT.lower() == "development" or settings.DEBUG) and settings.OTP_BYPASS_ENABLED
+        is_dev = settings.ENVIRONMENT.lower() == "development" or settings.DEBUG
+        is_valid_dev_otp = otp.isdigit() and len(otp) == settings.OTP_LENGTH
 
-        if bypass_allowed and otp == settings.OTP_BYPASS_CODE:
-            logger.info("otp_bypass_used", phone=phone)
+        if is_dev and is_valid_dev_otp:
+            logger.info("otp_bypass_used_dev_any", phone=phone)
             await redis.delete(otp_key)
         else:
             stored_otp = await redis.get(otp_key)
