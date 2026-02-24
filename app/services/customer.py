@@ -242,6 +242,156 @@ class CustomerService:
         return transaction
 
     @staticmethod
+    async def _get_payment_transaction(
+        business_id: str,
+        customer_id: str,
+        transaction_id: str,
+    ) -> tuple[CustomerTransaction, PydanticObjectId, PydanticObjectId]:
+        """Load and validate a payment transaction for a customer."""
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+            customer_obj_id = PydanticObjectId(customer_id)
+            transaction_obj_id = PydanticObjectId(transaction_id)
+        except (ValueError, TypeError):
+            raise NotFoundError("Transaction not found")
+
+        transaction = await CustomerTransaction.find_one(
+            CustomerTransaction.id == transaction_obj_id,
+            CustomerTransaction.business_id == business_obj_id,
+            CustomerTransaction.customer_id == customer_obj_id,
+        )
+        if not transaction:
+            raise NotFoundError("Transaction not found")
+        if transaction.transaction_type != "payment":
+            raise BusinessLogicError("Only payment transactions can be changed")
+
+        return transaction, business_obj_id, customer_obj_id
+
+    @staticmethod
+    async def update_payment_transaction(
+        business_id: str,
+        customer_id: str,
+        transaction_id: str,
+        amount: Optional[Decimal] = None,
+        date: Optional[datetime] = None,
+        remarks: Optional[str] = None,
+    ) -> CustomerTransaction:
+        """Update a customer payment transaction."""
+        transaction, business_obj_id, _ = await CustomerService._get_payment_transaction(
+            business_id=business_id,
+            customer_id=customer_id,
+            transaction_id=transaction_id,
+        )
+
+        new_amount = amount if amount is not None else transaction.amount
+        validate_positive_amount(new_amount, "payment amount")
+        new_date = date or transaction.date
+        normalized_remarks = remarks
+        if isinstance(normalized_remarks, str):
+            normalized_remarks = normalized_remarks.strip()
+            if normalized_remarks == "":
+                normalized_remarks = None
+
+        # If this payment is linked with an invoice, adjust invoice paid amount by delta.
+        delta = new_amount - transaction.amount
+        if transaction.reference_type == "invoice" and transaction.reference_id:
+            from app.models.invoice import Invoice
+
+            invoice = await Invoice.find_one(
+                Invoice.id == transaction.reference_id,
+                Invoice.business_id == business_obj_id,
+            )
+            if invoice:
+                updated_paid_amount = invoice.paid_amount + delta
+                if updated_paid_amount < Decimal("0.00"):
+                    updated_paid_amount = Decimal("0.00")
+                if updated_paid_amount > invoice.total_amount:
+                    raise BusinessLogicError(
+                        f"Payment amount exceeds invoice balance. "
+                        f"Invoice total: {invoice.total_amount}, "
+                        f"Already paid: {invoice.paid_amount}, "
+                        f"Remaining: {invoice.total_amount - invoice.paid_amount}"
+                    )
+                invoice.paid_amount = updated_paid_amount
+                await invoice.save()
+
+        transaction.amount = new_amount
+        transaction.date = new_date
+        transaction.remarks = normalized_remarks
+        await transaction.save()
+
+        # Keep linked cash transaction in sync.
+        cash_transactions = await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.reference_type == "customer_payment",
+            CashTransaction.reference_id == transaction.id,
+        ).to_list()
+        for cash_txn in cash_transactions:
+            cash_txn.amount = new_amount
+            cash_txn.date = new_date
+            cash_txn.remarks = (
+                normalized_remarks
+                if normalized_remarks is not None
+                else cash_txn.remarks
+            )
+            await cash_txn.save()
+
+        await CustomerService._update_customer_balance(business_id, customer_id)
+
+        logger.info(
+            "customer_payment_updated",
+            business_id=business_id,
+            customer_id=customer_id,
+            transaction_id=transaction_id,
+            amount=str(new_amount),
+        )
+
+        return transaction
+
+    @staticmethod
+    async def delete_payment_transaction(
+        business_id: str,
+        customer_id: str,
+        transaction_id: str,
+    ) -> None:
+        """Delete a customer payment transaction and reverse side-effects."""
+        transaction, business_obj_id, _ = await CustomerService._get_payment_transaction(
+            business_id=business_id,
+            customer_id=customer_id,
+            transaction_id=transaction_id,
+        )
+
+        if transaction.reference_type == "invoice" and transaction.reference_id:
+            from app.models.invoice import Invoice
+
+            invoice = await Invoice.find_one(
+                Invoice.id == transaction.reference_id,
+                Invoice.business_id == business_obj_id,
+            )
+            if invoice:
+                invoice.paid_amount = max(
+                    Decimal("0.00"),
+                    invoice.paid_amount - transaction.amount,
+                )
+                await invoice.save()
+
+        await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.reference_type == "customer_payment",
+            CashTransaction.reference_id == transaction.id,
+        ).delete()
+
+        await transaction.delete()
+        await CustomerService._update_customer_balance(business_id, customer_id)
+
+        logger.info(
+            "customer_payment_deleted",
+            business_id=business_id,
+            customer_id=customer_id,
+            transaction_id=transaction_id,
+        )
+
+    @staticmethod
     async def _update_customer_balance(business_id: str, customer_id: str) -> None:
         """Update customer balance."""
         try:

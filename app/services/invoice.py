@@ -1,6 +1,6 @@
 """Invoice service."""
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Dict
 from decimal import Decimal
 from beanie import PydanticObjectId
 
@@ -198,6 +198,333 @@ class InvoiceService:
         logger.info("invoice_created", business_id=business_id, invoice_id=str(invoice.id), invoice_number=invoice_number)
 
         return invoice
+
+    @staticmethod
+    async def _validate_stock_for_invoice_update(
+        business_obj_id: PydanticObjectId,
+        existing_items: List[InvoiceItem],
+        next_items: List[dict],
+    ) -> None:
+        """Validate only the extra required stock compared with existing invoice items."""
+        existing_qty_by_item: Dict[str, Decimal] = {}
+        for item in existing_items:
+            if not item.item_id:
+                continue
+            key = str(item.item_id)
+            existing_qty_by_item[key] = existing_qty_by_item.get(key, Decimal("0")) + item.quantity
+
+        next_qty_by_item: Dict[str, Decimal] = {}
+        for item in next_items:
+            item_id = item.get("item_id")
+            if not item_id:
+                continue
+            key = str(item_id)
+            quantity = item.get("quantity", Decimal("0"))
+            next_qty_by_item[key] = next_qty_by_item.get(key, Decimal("0")) + quantity
+
+        for item_id, next_qty in next_qty_by_item.items():
+            current_qty = existing_qty_by_item.get(item_id, Decimal("0"))
+            required_extra = next_qty - current_qty
+            if required_extra <= 0:
+                continue
+
+            item_obj_id = PydanticObjectId(item_id)
+            item = await Item.find_one(
+                Item.id == item_obj_id,
+                Item.business_id == business_obj_id,
+            )
+            if not item:
+                raise NotFoundError(f"Item with id {item_id} not found")
+            if item.current_stock < required_extra:
+                raise BusinessLogicError(
+                    f"Insufficient stock for item '{item.name}'. "
+                    f"Available: {item.current_stock}, Required: {required_extra}"
+                )
+
+    @staticmethod
+    async def _reverse_invoice_inventory_effects(
+        business_obj_id: PydanticObjectId,
+        invoice_obj_id: PydanticObjectId,
+    ) -> None:
+        """Reverse stock effects for inventory transactions linked with an invoice."""
+        inventory_rows = await InventoryTransaction.find(
+            InventoryTransaction.business_id == business_obj_id,
+            InventoryTransaction.reference_type == "invoice",
+            InventoryTransaction.reference_id == invoice_obj_id,
+        ).to_list()
+
+        for movement in inventory_rows:
+            item = await Item.find_one(
+                Item.id == movement.item_id,
+                Item.business_id == business_obj_id,
+            )
+            if not item:
+                continue
+
+            if movement.transaction_type == InventoryTransactionType.STOCK_OUT:
+                item.current_stock += movement.quantity
+            elif movement.transaction_type == InventoryTransactionType.STOCK_IN:
+                item.current_stock -= movement.quantity
+
+            if item.current_stock < Decimal("0"):
+                item.current_stock = Decimal("0")
+            await item.save()
+
+        if inventory_rows:
+            await InventoryTransaction.find(
+                InventoryTransaction.business_id == business_obj_id,
+                InventoryTransaction.reference_type == "invoice",
+                InventoryTransaction.reference_id == invoice_obj_id,
+            ).delete()
+
+    @staticmethod
+    async def update_invoice(
+        invoice_id: str,
+        business_id: str,
+        date: Optional[datetime] = None,
+        items: Optional[List[dict]] = None,
+        tax_amount: Optional[Decimal] = None,
+        discount_amount: Optional[Decimal] = None,
+        remarks: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Invoice:
+        """Update invoice with side-effect reconciliation."""
+        invoice = await InvoiceService.get_invoice(invoice_id, business_id)
+
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
+
+        current_items = await InvoiceItem.find(
+            InvoiceItem.invoice_id == invoice.id,
+        ).to_list()
+
+        next_date = date or invoice.date
+        next_tax = tax_amount if tax_amount is not None else invoice.tax_amount
+        next_discount = (
+            discount_amount if discount_amount is not None else invoice.discount_amount
+        )
+
+        normalized_remarks = remarks
+        if isinstance(normalized_remarks, str):
+            normalized_remarks = normalized_remarks.strip()
+            if normalized_remarks == "":
+                normalized_remarks = None
+        if remarks is None:
+            normalized_remarks = invoice.remarks
+
+        next_items = items
+        if next_items is None:
+            next_items = [
+                {
+                    "item_id": str(item.item_id) if item.item_id else None,
+                    "item_name": item.item_name,
+                    "quantity": item.quantity,
+                    "unit_price": item.unit_price,
+                }
+                for item in current_items
+            ]
+
+        if not next_items:
+            raise BusinessLogicError("Invoice must contain at least one item")
+
+        await InvoiceService._validate_stock_for_invoice_update(
+            business_obj_id=business_obj_id,
+            existing_items=current_items,
+            next_items=next_items,
+        )
+
+        next_subtotal = sum(
+            item["quantity"] * item["unit_price"] for item in next_items
+        )
+        next_total = next_subtotal + next_tax - next_discount
+
+        if invoice.invoice_type == InvoiceType.CREDIT and invoice.paid_amount > next_total:
+            raise BusinessLogicError(
+                "Updated total cannot be lower than already received payment"
+            )
+
+        invoice.date = next_date
+        invoice.subtotal = next_subtotal
+        invoice.tax_amount = next_tax
+        invoice.discount_amount = next_discount
+        invoice.total_amount = next_total
+        invoice.remarks = normalized_remarks
+        if invoice.invoice_type == InvoiceType.CASH:
+            invoice.paid_amount = next_total
+        await invoice.save()
+
+        await InvoiceService._reverse_invoice_inventory_effects(
+            business_obj_id=business_obj_id,
+            invoice_obj_id=invoice.id,
+        )
+        await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).delete()
+
+        for item_data in next_items:
+            item_obj_id = None
+            if item_data.get("item_id"):
+                item_obj_id = PydanticObjectId(str(item_data["item_id"]))
+
+            invoice_item = InvoiceItem(
+                invoice_id=invoice.id,
+                item_id=item_obj_id,
+                item_name=item_data["item_name"],
+                quantity=item_data["quantity"],
+                unit_price=item_data["unit_price"],
+                total_price=item_data["quantity"] * item_data["unit_price"],
+            )
+            await invoice_item.insert()
+
+            if item_data.get("item_id"):
+                from app.services.stock import stock_service
+
+                await stock_service.create_inventory_transaction(
+                    business_id=business_id,
+                    item_id=str(item_data["item_id"]),
+                    transaction_type="stock_out",
+                    quantity=item_data["quantity"],
+                    date=next_date,
+                    reference_id=str(invoice.id),
+                    reference_type="invoice",
+                    user_id=user_id,
+                )
+
+        if invoice.invoice_type == InvoiceType.CASH:
+            cash_rows = await CashTransaction.find(
+                CashTransaction.business_id == business_obj_id,
+                CashTransaction.reference_type == "invoice",
+                CashTransaction.reference_id == invoice.id,
+            ).to_list()
+            if cash_rows:
+                for row in cash_rows:
+                    row.amount = next_total
+                    row.date = next_date
+                    row.remarks = f"Invoice {invoice.invoice_number}"
+                    await row.save()
+            else:
+                from app.services.cash import cash_service
+
+                await cash_service.create_transaction(
+                    business_id=business_id,
+                    transaction_type="cash_in",
+                    amount=next_total,
+                    date=next_date,
+                    source="sales",
+                    remarks=f"Invoice {invoice.invoice_number}",
+                    reference_id=str(invoice.id),
+                    reference_type="invoice",
+                    user_id=user_id,
+                )
+        elif invoice.customer_id:
+            credit_rows = await CustomerTransaction.find(
+                CustomerTransaction.business_id == business_obj_id,
+                CustomerTransaction.reference_type == "invoice",
+                CustomerTransaction.reference_id == invoice.id,
+                CustomerTransaction.transaction_type == "credit",
+            ).to_list()
+            if credit_rows:
+                for row in credit_rows:
+                    row.amount = next_total
+                    row.date = next_date
+                    row.remarks = f"Invoice {invoice.invoice_number}"
+                    await row.save()
+            else:
+                user_obj_id = None
+                if user_id:
+                    try:
+                        user_obj_id = PydanticObjectId(user_id)
+                    except (ValueError, TypeError):
+                        user_obj_id = None
+                await CustomerTransaction(
+                    business_id=business_obj_id,
+                    customer_id=invoice.customer_id,
+                    transaction_type="credit",
+                    amount=next_total,
+                    date=next_date,
+                    reference_id=invoice.id,
+                    reference_type="invoice",
+                    remarks=f"Invoice {invoice.invoice_number}",
+                    created_by_user_id=user_obj_id,
+                ).insert()
+
+            from app.services.customer import customer_service
+
+            await customer_service._update_customer_balance(
+                business_id,
+                str(invoice.customer_id),
+            )
+
+        logger.info(
+            "invoice_updated",
+            business_id=business_id,
+            invoice_id=str(invoice.id),
+        )
+        return invoice
+
+    @staticmethod
+    async def delete_invoice(invoice_id: str, business_id: str) -> None:
+        """Delete invoice and reverse related side-effects."""
+        invoice = await InvoiceService.get_invoice(invoice_id, business_id)
+
+        try:
+            business_obj_id = PydanticObjectId(business_id)
+        except (ValueError, TypeError):
+            raise ValidationError(
+                "Invalid business ID format",
+                {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
+            )
+
+        if invoice.invoice_type == InvoiceType.CREDIT:
+            payment_rows = await CustomerTransaction.find(
+                CustomerTransaction.business_id == business_obj_id,
+                CustomerTransaction.reference_type == "invoice",
+                CustomerTransaction.reference_id == invoice.id,
+                CustomerTransaction.transaction_type == "payment",
+            ).to_list()
+            if payment_rows:
+                raise BusinessLogicError(
+                    "Cannot delete an invoice that has payment entries. "
+                    "Delete linked payments first."
+                )
+
+        await InvoiceService._reverse_invoice_inventory_effects(
+            business_obj_id=business_obj_id,
+            invoice_obj_id=invoice.id,
+        )
+        await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).delete()
+
+        await CashTransaction.find(
+            CashTransaction.business_id == business_obj_id,
+            CashTransaction.reference_type == "invoice",
+            CashTransaction.reference_id == invoice.id,
+        ).delete()
+
+        if invoice.invoice_type == InvoiceType.CREDIT and invoice.customer_id:
+            await CustomerTransaction.find(
+                CustomerTransaction.business_id == business_obj_id,
+                CustomerTransaction.reference_type == "invoice",
+                CustomerTransaction.reference_id == invoice.id,
+                CustomerTransaction.transaction_type == "credit",
+            ).delete()
+
+            from app.services.customer import customer_service
+
+            await customer_service._update_customer_balance(
+                business_id,
+                str(invoice.customer_id),
+            )
+
+        await invoice.delete()
+
+        logger.info(
+            "invoice_deleted",
+            business_id=business_id,
+            invoice_id=invoice_id,
+        )
 
     @staticmethod
     async def get_invoice(invoice_id: str, business_id: str) -> Invoice:

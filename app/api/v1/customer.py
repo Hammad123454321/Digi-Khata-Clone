@@ -13,6 +13,7 @@ from app.schemas.customer import (
     CustomerUpdate,
     CustomerResponse,
     CustomerPaymentCreate,
+    CustomerPaymentUpdate,
     CustomerTransactionResponse,
 )
 from app.services.customer import customer_service
@@ -174,3 +175,48 @@ async def list_customer_transactions(
         )
         for t in transactions
     ]
+
+
+@router.put(
+    "/{customer_id}/payments/{transaction_id}",
+    response_model=CustomerTransactionResponse,
+)
+async def update_payment(
+    customer_id: str,
+    transaction_id: str,
+    data: CustomerPaymentUpdate,
+    current_business: Business = Depends(get_current_business),
+):
+    """Update customer payment transaction."""
+    transaction = await customer_service.update_payment_transaction(
+        business_id=str(current_business.id),
+        customer_id=customer_id,
+        transaction_id=transaction_id,
+        amount=data.amount,
+        date=data.date,
+        remarks=data.remarks,
+    )
+    return CustomerTransactionResponse(
+        id=str(transaction.id),
+        transaction_type=transaction.transaction_type,
+        amount=transaction.amount,
+        date=transaction.date,
+        reference_id=str(transaction.reference_id) if transaction.reference_id else None,
+        reference_type=transaction.reference_type,
+        remarks=transaction.remarks,
+        created_at=transaction.created_at,
+    )
+
+
+@router.delete("/{customer_id}/payments/{transaction_id}", status_code=204)
+async def delete_payment(
+    customer_id: str,
+    transaction_id: str,
+    current_business: Business = Depends(get_current_business),
+):
+    """Delete customer payment transaction."""
+    await customer_service.delete_payment_transaction(
+        business_id=str(current_business.id),
+        customer_id=customer_id,
+        transaction_id=transaction_id,
+    )

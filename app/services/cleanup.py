@@ -1,5 +1,6 @@
 """Cleanup service for automated data retention and archival."""
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 from beanie import PydanticObjectId
 
@@ -100,9 +101,21 @@ class CleanupService:
             Backup.status == "completed",
         ).to_list()
 
-        # TODO: Delete backup files from S3/object storage
-        # This would require S3 client integration
-        # For now, we just delete the database records
+        deleted_files = 0
+        for backup in backups:
+            if not backup.file_path:
+                continue
+            backup_path = Path(backup.file_path)
+            if backup_path.exists() and backup_path.is_file():
+                try:
+                    backup_path.unlink()
+                    deleted_files += 1
+                except OSError as exc:
+                    logger.warning(
+                        "backup_file_delete_failed",
+                        path=str(backup_path),
+                        error=str(exc),
+                    )
 
         # Delete expired backup records
         await Backup.find(
@@ -119,6 +132,7 @@ class CleanupService:
 
         return {
             "cleaned": count,
+            "deleted_files": deleted_files,
             "retention_days": retention_days,
             "cutoff_date": cutoff_date.isoformat(),
         }

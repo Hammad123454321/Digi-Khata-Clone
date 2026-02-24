@@ -26,6 +26,16 @@ class InvoiceCreate(BaseModel):
     remarks: Optional[str] = Field(None, max_length=1000)
 
 
+class InvoiceUpdate(BaseModel):
+    """Invoice update schema."""
+
+    date: Optional[datetime] = None
+    items: Optional[List[InvoiceItemCreate]] = Field(default=None, min_items=1)
+    tax_amount: Optional[Decimal] = Field(default=None, ge=0)
+    discount_amount: Optional[Decimal] = Field(default=None, ge=0)
+    remarks: Optional[str] = Field(default=None, max_length=1000)
+
+
 class InvoiceItemResponse(BaseModel):
     """Invoice item response schema."""
 

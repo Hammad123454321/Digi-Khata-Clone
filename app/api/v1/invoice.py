@@ -8,7 +8,13 @@ import io
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
-from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceListResponse, InvoiceItemResponse
+from app.schemas.invoice import (
+    InvoiceCreate,
+    InvoiceUpdate,
+    InvoiceResponse,
+    InvoiceListResponse,
+    InvoiceItemResponse,
+)
 from app.services.invoice import invoice_service
 from app.services.pdf import PDFService
 
@@ -162,6 +168,72 @@ async def get_invoice(
     )
 
 
+@router.put("/{invoice_id}", response_model=InvoiceResponse)
+@router.patch("/{invoice_id}", response_model=InvoiceResponse)
+async def update_invoice(
+    invoice_id: str,
+    data: InvoiceUpdate,
+    current_business: Business = Depends(get_current_business),
+    current_user: User = Depends(get_current_user),
+):
+    """Update an existing invoice."""
+    update_payload = data.model_dump(exclude_unset=True)
+    invoice = await invoice_service.update_invoice(
+        invoice_id=invoice_id,
+        business_id=str(current_business.id),
+        date=update_payload.get("date"),
+        items=update_payload.get("items"),
+        tax_amount=update_payload.get("tax_amount"),
+        discount_amount=update_payload.get("discount_amount"),
+        remarks=update_payload.get("remarks"),
+        user_id=str(current_user.id),
+    )
+
+    from app.models.invoice import InvoiceItem
+
+    invoice_items = await InvoiceItem.find(InvoiceItem.invoice_id == invoice.id).to_list()
+    items = [
+        InvoiceItemResponse(
+            id=str(item.id),
+            item_id=str(item.item_id) if item.item_id else None,
+            item_name=item.item_name,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            total_price=item.total_price,
+        )
+        for item in invoice_items
+    ]
+
+    return InvoiceResponse(
+        id=str(invoice.id),
+        invoice_number=invoice.invoice_number,
+        customer_id=str(invoice.customer_id) if invoice.customer_id else None,
+        invoice_type=invoice.invoice_type.value,
+        date=invoice.date,
+        subtotal=invoice.subtotal,
+        tax_amount=invoice.tax_amount,
+        discount_amount=invoice.discount_amount,
+        total_amount=invoice.total_amount,
+        paid_amount=invoice.paid_amount,
+        remarks=invoice.remarks,
+        pdf_path=invoice.pdf_path,
+        items=items,
+        created_at=invoice.created_at,
+    )
+
+
+@router.delete("/{invoice_id}", status_code=204)
+async def delete_invoice(
+    invoice_id: str,
+    current_business: Business = Depends(get_current_business),
+):
+    """Delete an invoice."""
+    await invoice_service.delete_invoice(
+        invoice_id=invoice_id,
+        business_id=str(current_business.id),
+    )
+
+
 @router.get("/{invoice_id}/pdf")
 async def get_invoice_pdf(
     invoice_id: str,
@@ -209,4 +281,3 @@ async def get_invoice_pdf(
                 "Access-Control-Allow-Credentials": "false",
             }
         )
-

@@ -26,6 +26,8 @@ dependencies:
   shared_preferences: ^2.2.2
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+  drift: ^2.15.0
+  drift_sqflite: ^2.0.1
 
   # Dependency Injection
   get_it: ^7.6.4
@@ -96,6 +98,7 @@ dev_dependencies:
   
   # Code Generation
   build_runner: ^2.4.7
+  drift_dev: ^2.15.0
   json_serializable: ^6.7.1
   freezed: ^2.4.6
   injectable_generator: ^2.4.1
@@ -118,4 +121,3 @@ flutter_icons:
     background_color: "#FFFFFF"
     theme_color: "#E53935"
   image_path: "app-logo.jpeg"
-

@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     BACKUP_ENABLED: bool = Field(default=True)
     BACKUP_RETENTION_DAYS: int = Field(default=30)
     AUTO_BACKUP_INTERVAL_HOURS: int = Field(default=24)
+    BACKUP_LOCAL_DIR: str = Field(default="data/backups")
 
     # Encryption Settings
     ENCRYPTION_KEY: str = Field(default="")  # 32-byte key for AES-256, base64 encoded

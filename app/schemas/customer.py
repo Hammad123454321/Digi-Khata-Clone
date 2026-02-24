@@ -48,6 +48,18 @@ class CustomerPaymentCreate(BaseModel):
     remarks: Optional[str] = None
 
 
+class CustomerPaymentUpdate(BaseModel):
+    """Customer payment update schema."""
+
+    amount: Optional[Decimal] = Field(
+        default=None,
+        gt=0,
+        description="Updated payment amount must be positive",
+    )
+    date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
 class CustomerTransactionResponse(BaseModel):
     """Customer transaction response schema."""
 
@@ -62,4 +74,3 @@ class CustomerTransactionResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
