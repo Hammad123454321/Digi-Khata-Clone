@@ -9,18 +9,22 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Deploy to VPS
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
+            set -euo pipefail
+            BRANCH="${{ github.ref_name }}"
             cd ${{ secrets.VPS_APP_PATH || '/var/www/digikhata' }}
-            git pull
-            docker compose build
-            docker compose up -d
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            docker compose config >/dev/null
+            docker compose up -d --build --remove-orphans
 
