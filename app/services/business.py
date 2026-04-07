@@ -2,7 +2,7 @@
 from typing import Optional
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, ConflictError, BusinessLogicError, ValidationError
+from app.core.exceptions import NotFoundError, ConflictError, ValidationError
 from app.models.business import Business, BusinessTypeEnum
 from app.models.user import User, UserMembership, UserRoleEnum
 from app.core.logging import get_logger
@@ -121,16 +121,6 @@ class BusinessService:
         if language_preference is not None:
             business.language_preference = language_preference
         if max_devices is not None:
-            # Check if reducing devices below current active count
-            from app.models.device import Device
-            active_devices = await Device.find(
-                Device.business_id == business.id,
-                Device.is_active == True,
-            ).count()
-            if max_devices < active_devices:
-                raise BusinessLogicError(
-                    f"Cannot set max_devices to {max_devices}. There are {active_devices} active devices."
-                )
             business.max_devices = max_devices
 
         await business.save()

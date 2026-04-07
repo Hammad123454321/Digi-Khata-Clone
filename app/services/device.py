@@ -3,13 +3,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from beanie import PydanticObjectId
 
-from app.core.exceptions import NotFoundError, BusinessLogicError, AuthenticationError, ValidationError
+from app.core.exceptions import NotFoundError, AuthenticationError, ValidationError
 from app.models.device import Device
 from app.core.security import generate_device_token
-from app.core.config import get_settings
 from app.core.logging import get_logger
 
-settings = get_settings()
 logger = get_logger(__name__)
 
 
@@ -30,20 +28,6 @@ class DeviceService:
                     "user_id": [f"'{user_id}' is not a valid ObjectId"],
                 },
             )
-
-        # Check device limit
-        device_count = await Device.find(
-            Device.business_id == business_obj_id,
-            Device.is_active == True,
-        ).count()
-
-        # Get business max_devices
-        from app.models.business import Business
-        business = await Business.get(business_obj_id)
-        max_devices = business.max_devices if business else settings.MAX_DEVICES_PER_BUSINESS
-
-        if device_count >= max_devices:
-            raise BusinessLogicError(f"Maximum device limit ({max_devices}) reached")
 
         # Generate token
         token = generate_device_token()
@@ -119,19 +103,6 @@ class DeviceService:
                 device.device_type = device_type
             await device.save()
         else:
-            # Check device limit
-            device_count = await Device.find(
-                Device.business_id == business_obj_id,
-                Device.is_active == True,
-            ).count()
-
-            from app.models.business import Business
-            business = await Business.get(business_obj_id)
-            max_devices = business.max_devices if business else settings.MAX_DEVICES_PER_BUSINESS
-
-            if device_count >= max_devices:
-                raise BusinessLogicError(f"Maximum device limit ({max_devices}) reached")
-
             # Create new device
             device = Device(
                 business_id=business_obj_id,

@@ -124,18 +124,9 @@ class AuthService:
         device_info = None
         if device_id and businesses:
             from app.models.device import Device
-            from app.core.security import generate_device_token
 
             # Use first business for device registration (user can add more businesses later)
             business = businesses[0]
-            # Check device limit
-            device_count = await Device.find(
-                Device.business_id == business.id,
-                Device.is_active == True,
-            ).count()
-
-            if device_count >= business.max_devices:
-                raise BusinessLogicError(translate("max_devices_reached", language, limit=business.max_devices))
 
             # Check if device already exists
             device = await Device.find_one(
