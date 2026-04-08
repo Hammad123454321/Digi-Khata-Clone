@@ -127,6 +127,7 @@ async def record_payment(
         amount=data.amount,
         date=data.date,
         invoice_id=str(data.invoice_id) if data.invoice_id else None,
+        client_request_id=data.client_request_id,
         remarks=data.remarks,
         user_id=str(current_user.id),
     )
@@ -138,6 +139,7 @@ async def record_payment(
         date=transaction.date,
         reference_id=str(transaction.reference_id) if transaction.reference_id else None,
         reference_type=transaction.reference_type,
+        client_request_id=transaction.client_request_id,
         remarks=transaction.remarks,
         created_at=transaction.created_at,
     )
@@ -170,6 +172,7 @@ async def list_customer_transactions(
             date=t.date,
             reference_id=str(t.reference_id) if t.reference_id else None,
             reference_type=t.reference_type,
+            client_request_id=t.client_request_id,
             remarks=t.remarks,
             created_at=t.created_at,
         )
@@ -203,6 +206,7 @@ async def update_payment(
         date=transaction.date,
         reference_id=str(transaction.reference_id) if transaction.reference_id else None,
         reference_type=transaction.reference_type,
+        client_request_id=transaction.client_request_id,
         remarks=transaction.remarks,
         created_at=transaction.created_at,
     )

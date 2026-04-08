@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
 from beanie import PydanticObjectId
+from pymongo.errors import DuplicateKeyError
 
 from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.core.validators import validate_positive_amount
@@ -129,6 +130,7 @@ class CustomerService:
         amount: Decimal,
         date: datetime,
         invoice_id: Optional[str] = None,
+        client_request_id: Optional[str] = None,
         remarks: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> CustomerTransaction:
@@ -149,9 +151,33 @@ class CustomerService:
             )
 
         customer = await CustomerService.get_customer(customer_id, business_id)
+        normalized_request_id = (
+            client_request_id.strip() if isinstance(client_request_id, str) else None
+        )
+        if normalized_request_id == "":
+            normalized_request_id = None
+
+        # Idempotency guard: if this payment request was already processed, return it.
+        if normalized_request_id:
+            existing_transaction = await CustomerTransaction.find_one(
+                CustomerTransaction.business_id == business_obj_id,
+                CustomerTransaction.customer_id == customer_obj_id,
+                CustomerTransaction.transaction_type == "payment",
+                CustomerTransaction.client_request_id == normalized_request_id,
+            )
+            if existing_transaction:
+                logger.info(
+                    "customer_payment_idempotent_replay",
+                    business_id=business_id,
+                    customer_id=customer_id,
+                    client_request_id=normalized_request_id,
+                    transaction_id=str(existing_transaction.id),
+                )
+                return existing_transaction
 
         # If invoice_id provided, validate and update invoice
         invoice = None
+        new_paid_amount = None
         if invoice_id:
             from app.models.invoice import Invoice
             
@@ -185,10 +211,6 @@ class CustomerService:
                     f"Remaining: {invoice.total_amount - invoice.paid_amount}"
                 )
             
-            # Update invoice paid amount
-            invoice.paid_amount = new_paid_amount
-            await invoice.save()
-
         # Create payment transaction
         user_obj_id = None
         if user_id:
@@ -205,10 +227,35 @@ class CustomerService:
             date=date,
             reference_id=PydanticObjectId(invoice_id) if invoice_id else None,
             reference_type="invoice" if invoice_id else None,
+            client_request_id=normalized_request_id,
             remarks=remarks,
             created_by_user_id=user_obj_id,
         )
-        await transaction.insert()
+        try:
+            await transaction.insert()
+        except DuplicateKeyError:
+            if normalized_request_id:
+                existing_transaction = await CustomerTransaction.find_one(
+                    CustomerTransaction.business_id == business_obj_id,
+                    CustomerTransaction.customer_id == customer_obj_id,
+                    CustomerTransaction.transaction_type == "payment",
+                    CustomerTransaction.client_request_id == normalized_request_id,
+                )
+                if existing_transaction:
+                    logger.info(
+                        "customer_payment_idempotent_duplicate_blocked",
+                        business_id=business_id,
+                        customer_id=customer_id,
+                        client_request_id=normalized_request_id,
+                        transaction_id=str(existing_transaction.id),
+                    )
+                    return existing_transaction
+            raise
+
+        # Update invoice paid amount after transaction insert succeeds.
+        if invoice and new_paid_amount is not None:
+            invoice.paid_amount = new_paid_amount
+            await invoice.save()
 
         # Create cash transaction
         from app.services.cash import cash_service

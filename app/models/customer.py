@@ -4,6 +4,7 @@ from typing import Optional
 from decimal import Decimal
 from pydantic import Field
 from beanie import Indexed, PydanticObjectId
+from pymongo import IndexModel
 
 from app.models.base import BaseModel
 from app.core.security import encrypt_data, decrypt_data
@@ -61,6 +62,7 @@ class CustomerTransaction(BaseModel):
     date: Indexed(datetime, )
     reference_id: Optional[PydanticObjectId] = None  # Reference to invoice, payment, etc.
     reference_type: Optional[str] = None  # invoice, payment, manual, etc.
+    client_request_id: Optional[str] = None  # Idempotency key from client for create-payment retries
     remarks: Optional[str] = None
     created_by_user_id: Optional[PydanticObjectId] = None
 
@@ -72,6 +74,11 @@ class CustomerTransaction(BaseModel):
             [("date", 1)],
             [("business_id", 1), ("customer_id", 1), ("date", 1)],
             [("business_id", 1), ("transaction_type", 1), ("date", 1)],
+            IndexModel(
+                [("business_id", 1), ("customer_id", 1), ("client_request_id", 1)],
+                unique=True,
+                partialFilterExpression={"client_request_id": {"$type": "string"}},
+            ),
         ]
 
 
