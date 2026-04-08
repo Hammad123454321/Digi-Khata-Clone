@@ -421,8 +421,9 @@ class ReportsService:
                 if txn.transaction_type == InventoryTransactionType.STOCK_IN:
                     purchased_qty += txn.quantity
                 elif txn.transaction_type == InventoryTransactionType.STOCK_OUT:
-                    sold_qty += txn.quantity
                     stock_out_qty += txn.quantity
+                    if txn.reference_type == "invoice":
+                        sold_qty += txn.quantity
                 elif txn.transaction_type == InventoryTransactionType.WASTAGE:
                     wastage_qty += txn.quantity
                 elif txn.transaction_type == InventoryTransactionType.ADJUSTMENT:
