@@ -53,10 +53,16 @@ async def get_expense_report(
 
 @router.get("/stock", response_model=dict)
 async def get_stock_report(
+    start_date: datetime | None = Query(None),
+    end_date: datetime | None = Query(None),
     current_business: Business = Depends(get_current_business),
 ):
     """Get stock report."""
-    return await reports_service.get_stock_report(str(current_business.id))
+    return await reports_service.get_stock_report(
+        business_id=str(current_business.id),
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 @router.get("/profit-loss", response_model=dict)

@@ -9,7 +9,7 @@ from beanie.operators import In
 from app.models.invoice import Invoice, InvoiceType, InvoiceItem
 from app.models.expense import Expense
 from app.models.cash import CashTransaction, CashTransactionType
-from app.models.item import Item
+from app.models.item import Item, InventoryTransaction, InventoryTransactionType, LowStockAlert
 from app.core.logging import get_logger
 from app.core.exceptions import ValidationError
 
@@ -302,6 +302,8 @@ class ReportsService:
     @staticmethod
     async def get_stock_report(
         business_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> dict:
         """Get stock report."""
         try:
@@ -312,30 +314,232 @@ class ReportsService:
                 {"business_id": [f"'{business_id}' is not a valid ObjectId"]},
             )
 
+        # Default to current month if no explicit date window provided.
+        if end_date is None:
+            end_date = datetime.now()
+        if start_date is None:
+            start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start_date > end_date:
+            raise ValidationError(
+                "Invalid date range",
+                {"start_date": ["start_date cannot be after end_date"]},
+            )
+
         items = await Item.find(
             Item.business_id == business_obj_id,
             Item.is_active == True,
         ).to_list()
 
         total_items = len(items)
-        out_of_stock_items = [item for item in items if item.current_stock <= 0]
+        if total_items == 0:
+            return {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days_in_range": 0,
+                "total_items": 0,
+                "total_value": "0.00",  # Backward compatibility
+                "total_stock_value": "0.00",
+                "total_sold_qty": "0.00",
+                "total_sold_value": "0.00",
+                "total_estimated_margin": "0.00",
+                "out_of_stock_items": 0,
+                "low_stock_items": 0,
+                "dead_stock_items_count": 0,
+                "fast_moving_items": [],
+                "dead_stock_items": [],
+                "items": [],
+            }
 
-        total_stock_value = sum(item.current_stock * item.sale_price for item in items)
+        item_ids = [item.id for item in items if item.id is not None]
+        item_txn_map = defaultdict(list)
+        if item_ids:
+            transactions = await InventoryTransaction.find(
+                InventoryTransaction.business_id == business_obj_id,
+                In(InventoryTransaction.item_id, item_ids),
+                InventoryTransaction.date <= end_date,
+            ).sort("+date").to_list()
+            for txn in transactions:
+                item_txn_map[str(txn.item_id)].append(txn)
+
+        low_stock_map = {}
+        if item_ids:
+            low_stock_alerts = await LowStockAlert.find(
+                LowStockAlert.business_id == business_obj_id,
+                LowStockAlert.is_resolved == False,
+                In(LowStockAlert.item_id, item_ids),
+            ).to_list()
+            low_stock_map = {str(alert.item_id): alert for alert in low_stock_alerts}
+
+        days_in_range = max(1, (end_date.date() - start_date.date()).days + 1)
+        total_stock_value = Decimal("0.00")
+        total_sold_qty = Decimal("0.00")
+        total_sold_value = Decimal("0.00")
+        total_estimated_margin = Decimal("0.00")
+
+        out_of_stock_count = 0
+        low_stock_count = 0
+        dead_stock_count = 0
+        fast_moving_candidates = []
+        dead_stock_items = []
+        items_payload = []
+
+        def _apply_inventory_movement(running_stock: Decimal, txn: InventoryTransaction) -> Decimal:
+            if txn.transaction_type == InventoryTransactionType.STOCK_IN:
+                return running_stock + txn.quantity
+            if txn.transaction_type == InventoryTransactionType.STOCK_OUT:
+                return running_stock - txn.quantity
+            if txn.transaction_type == InventoryTransactionType.WASTAGE:
+                return running_stock - txn.quantity
+            if txn.transaction_type == InventoryTransactionType.ADJUSTMENT:
+                return txn.quantity
+            return running_stock
+
+        for item in items:
+            item_id_str = str(item.id)
+            running_stock = item.opening_stock or Decimal("0.000")
+            purchased_qty = Decimal("0.000")
+            sold_qty = Decimal("0.000")
+            stock_out_qty = Decimal("0.000")
+            wastage_qty = Decimal("0.000")
+            adjustment_events = 0
+            item_transactions = item_txn_map.get(item_id_str, [])
+
+            # Rebuild stock level at the start of the selected window.
+            for txn in item_transactions:
+                if txn.date < start_date:
+                    running_stock = _apply_inventory_movement(running_stock, txn)
+                    continue
+                if txn.date > end_date:
+                    continue
+
+            opening_stock = running_stock
+
+            # Apply only movements inside selected window and aggregate analytics.
+            for txn in item_transactions:
+                if txn.date < start_date or txn.date > end_date:
+                    continue
+                if txn.transaction_type == InventoryTransactionType.STOCK_IN:
+                    purchased_qty += txn.quantity
+                elif txn.transaction_type == InventoryTransactionType.STOCK_OUT:
+                    sold_qty += txn.quantity
+                    stock_out_qty += txn.quantity
+                elif txn.transaction_type == InventoryTransactionType.WASTAGE:
+                    wastage_qty += txn.quantity
+                elif txn.transaction_type == InventoryTransactionType.ADJUSTMENT:
+                    adjustment_events += 1
+                running_stock = _apply_inventory_movement(running_stock, txn)
+            closing_stock = running_stock
+            stock_value = closing_stock * item.purchase_price
+            sold_value = sold_qty * item.sale_price
+            estimated_margin = sold_qty * (item.sale_price - item.purchase_price)
+            sales_velocity_per_day = sold_qty / Decimal(str(days_in_range))
+            days_of_stock_left = None
+            if sales_velocity_per_day > 0 and closing_stock > 0:
+                days_of_stock_left = closing_stock / sales_velocity_per_day
+
+            total_stock_value += stock_value
+            total_sold_qty += sold_qty
+            total_sold_value += sold_value
+            total_estimated_margin += estimated_margin
+
+            is_out_of_stock = closing_stock <= 0
+            if is_out_of_stock:
+                out_of_stock_count += 1
+
+            alert = low_stock_map.get(item_id_str)
+            low_stock_threshold = alert.threshold if alert else None
+            is_low_stock = bool(
+                low_stock_threshold is not None
+                and closing_stock <= low_stock_threshold
+                and closing_stock > 0
+            )
+            if is_low_stock:
+                low_stock_count += 1
+
+            is_dead_stock = sold_qty <= 0 and closing_stock > 0
+            if is_dead_stock:
+                dead_stock_count += 1
+                dead_stock_items.append(
+                    {
+                        "id": item_id_str,
+                        "name": item.name,
+                        "closing_stock": str(closing_stock),
+                        "stock_value": str(stock_value),
+                        "unit": item.unit.value,
+                    }
+                )
+
+            if sold_qty > 0:
+                fast_moving_candidates.append(
+                    {
+                        "id": item_id_str,
+                        "name": item.name,
+                        "sold_qty": str(sold_qty),
+                        "sold_value": str(sold_value),
+                        "unit": item.unit.value,
+                    }
+                )
+
+            items_payload.append(
+                {
+                    "id": item_id_str,
+                    "name": item.name,
+                    "unit": item.unit.value,
+                    "purchase_price": str(item.purchase_price),
+                    "sale_price": str(item.sale_price),
+                    "opening_stock": str(opening_stock),
+                    "purchased_qty": str(purchased_qty),
+                    "sold_qty": str(sold_qty),
+                    "stock_out_qty": str(stock_out_qty),
+                    "wastage_qty": str(wastage_qty),
+                    "adjustment_events": adjustment_events,
+                    "closing_stock": str(closing_stock),
+                    "current_stock": str(closing_stock),  # Backward compatibility
+                    "stock_value": str(stock_value),
+                    "value": str(stock_value),  # Backward compatibility
+                    "sold_value": str(sold_value),
+                    "estimated_margin": str(estimated_margin),
+                    "sales_velocity_per_day": str(sales_velocity_per_day),
+                    "days_of_stock_left": str(days_of_stock_left) if days_of_stock_left is not None else None,
+                    "is_out_of_stock": is_out_of_stock,
+                    "is_low_stock": is_low_stock,
+                    "is_dead_stock": is_dead_stock,
+                    "low_stock_threshold": str(low_stock_threshold) if low_stock_threshold is not None else None,
+                }
+            )
+
+        fast_moving_items = sorted(
+            fast_moving_candidates,
+            key=lambda item_data: Decimal(item_data["sold_qty"]),
+            reverse=True,
+        )[:10]
+        dead_stock_items = sorted(
+            dead_stock_items,
+            key=lambda item_data: Decimal(item_data["stock_value"]),
+            reverse=True,
+        )[:20]
+        items_payload = sorted(
+            items_payload,
+            key=lambda item_data: Decimal(item_data["stock_value"]),
+            reverse=True,
+        )
 
         return {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "days_in_range": days_in_range,
             "total_items": total_items,
-            "total_value": str(total_stock_value),
-            "out_of_stock_items": len(out_of_stock_items),
-            "items": [
-                {
-                    "id": str(item.id),
-                    "name": item.name,
-                    "current_stock": str(item.current_stock),
-                    "unit": item.unit.value,
-                    "value": str(item.current_stock * item.sale_price),
-                }
-                for item in items
-            ],
+            "total_value": str(total_stock_value),  # Backward compatibility
+            "total_stock_value": str(total_stock_value),
+            "total_sold_qty": str(total_sold_qty),
+            "total_sold_value": str(total_sold_value),
+            "total_estimated_margin": str(total_estimated_margin),
+            "out_of_stock_items": out_of_stock_count,
+            "low_stock_items": low_stock_count,
+            "dead_stock_items_count": dead_stock_count,
+            "fast_moving_items": fast_moving_items,
+            "dead_stock_items": dead_stock_items,
+            "items": items_payload,
         }
 
     @staticmethod
