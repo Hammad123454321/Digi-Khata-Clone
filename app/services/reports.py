@@ -348,9 +348,21 @@ class ReportsService:
                 "fast_moving_items": [],
                 "dead_stock_items": [],
                 "items": [],
+                "entries": 0,
+                "total_qty": "0.00",
+                "total_amount": "0.00",
+                "in_summary": {"entries": 0, "qty": "0.00", "amount": "0.00"},
+                "out_summary": {"entries": 0, "qty": "0.00", "amount": "0.00"},
+                "movement_summary": {
+                    "all": {"entries": 0, "qty": "0.00", "amount": "0.00"},
+                    "in": {"entries": 0, "qty": "0.00", "amount": "0.00"},
+                    "out": {"entries": 0, "qty": "0.00", "amount": "0.00"},
+                },
+                "movement_entries": [],
             }
 
         item_ids = [item.id for item in items if item.id is not None]
+        transactions = []
         item_txn_map = defaultdict(list)
         if item_ids:
             transactions = await InventoryTransaction.find(
@@ -370,6 +382,33 @@ class ReportsService:
             ).to_list()
             low_stock_map = {str(alert.item_id): alert for alert in low_stock_alerts}
 
+        invoice_sale_price_by_invoice_and_item: dict[tuple[str, str], Decimal] = {}
+        if transactions:
+            invoice_reference_ids = {
+                txn.reference_id
+                for txn in transactions
+                if txn.reference_type == "invoice" and txn.reference_id is not None
+            }
+            if invoice_reference_ids:
+                invoice_items = await InvoiceItem.find(
+                    In(InvoiceItem.invoice_id, list(invoice_reference_ids)),
+                    In(InvoiceItem.item_id, item_ids),
+                ).to_list()
+                invoice_item_price_accumulator = defaultdict(
+                    lambda: {"qty": Decimal("0.000"), "value": Decimal("0.00")}
+                )
+                for invoice_item in invoice_items:
+                    if invoice_item.item_id is None:
+                        continue
+                    key = (str(invoice_item.invoice_id), str(invoice_item.item_id))
+                    invoice_item_price_accumulator[key]["qty"] += invoice_item.quantity
+                    invoice_item_price_accumulator[key]["value"] += invoice_item.total_price
+                for key, totals in invoice_item_price_accumulator.items():
+                    if totals["qty"] > 0:
+                        invoice_sale_price_by_invoice_and_item[key] = (
+                            totals["value"] / totals["qty"]
+                        )
+
         days_in_range = max(1, (end_date.date() - start_date.date()).days + 1)
         total_stock_value = Decimal("0.00")
         total_sold_qty = Decimal("0.00")
@@ -382,6 +421,12 @@ class ReportsService:
         fast_moving_candidates = []
         dead_stock_items = []
         items_payload = []
+        movement_entries = []
+        movement_summary = {
+            "all": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
+            "in": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
+            "out": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
+        }
 
         def _apply_inventory_movement(running_stock: Decimal, txn: InventoryTransaction) -> Decimal:
             if txn.transaction_type == InventoryTransactionType.STOCK_IN:
@@ -402,6 +447,8 @@ class ReportsService:
             stock_out_qty = Decimal("0.000")
             wastage_qty = Decimal("0.000")
             adjustment_events = 0
+            sold_value = Decimal("0.00")
+            estimated_margin = Decimal("0.00")
             item_transactions = item_txn_map.get(item_id_str, [])
 
             # Rebuild stock level at the start of the selected window.
@@ -418,21 +465,87 @@ class ReportsService:
             for txn in item_transactions:
                 if txn.date < start_date or txn.date > end_date:
                     continue
+                stock_before_txn = running_stock
+                movement_direction = None
+                movement_qty = txn.quantity
+                txn_unit_price = txn.unit_price if txn.unit_price is not None else Decimal("0.00")
+                effective_unit_price = txn_unit_price
+
                 if txn.transaction_type == InventoryTransactionType.STOCK_IN:
                     purchased_qty += txn.quantity
+                    movement_direction = "in"
+                    if effective_unit_price <= 0:
+                        effective_unit_price = item.purchase_price
                 elif txn.transaction_type == InventoryTransactionType.STOCK_OUT:
                     stock_out_qty += txn.quantity
+                    movement_direction = "out"
+                    if effective_unit_price <= 0:
+                        effective_unit_price = item.sale_price
                     if txn.reference_type == "invoice":
+                        invoice_rate = None
+                        if txn.reference_id is not None:
+                            invoice_rate = invoice_sale_price_by_invoice_and_item.get(
+                                (str(txn.reference_id), item_id_str)
+                            )
+                        if invoice_rate is not None and invoice_rate > 0:
+                            effective_unit_price = invoice_rate
                         sold_qty += txn.quantity
+                        sold_value += txn.quantity * effective_unit_price
+                        estimated_margin += txn.quantity * (
+                            effective_unit_price - item.purchase_price
+                        )
                 elif txn.transaction_type == InventoryTransactionType.WASTAGE:
                     wastage_qty += txn.quantity
+                    movement_direction = "out"
+                    if effective_unit_price <= 0:
+                        effective_unit_price = item.purchase_price
                 elif txn.transaction_type == InventoryTransactionType.ADJUSTMENT:
                     adjustment_events += 1
+                    delta = txn.quantity - stock_before_txn
+                    if delta > 0:
+                        movement_direction = "in"
+                        movement_qty = delta
+                    elif delta < 0:
+                        movement_direction = "out"
+                        movement_qty = abs(delta)
+                    else:
+                        movement_direction = None
+                        movement_qty = Decimal("0.000")
+                    if effective_unit_price <= 0:
+                        effective_unit_price = item.purchase_price
+
+                if movement_direction is not None and movement_qty > 0:
+                    movement_amount = movement_qty * effective_unit_price
+                    movement_summary[movement_direction]["entries"] += 1
+                    movement_summary[movement_direction]["qty"] += movement_qty
+                    movement_summary[movement_direction]["amount"] += movement_amount
+                    movement_summary["all"]["entries"] += 1
+                    movement_summary["all"]["qty"] += movement_qty
+                    movement_summary["all"]["amount"] += movement_amount
+                    movement_entries.append(
+                        {
+                            "item_id": item_id_str,
+                            "name": item.name,
+                            "unit": item.unit.value,
+                            "direction": movement_direction,
+                            "transaction_type": (
+                                txn.transaction_type.value
+                                if hasattr(txn.transaction_type, "value")
+                                else str(txn.transaction_type)
+                            ),
+                            "quantity": str(movement_qty),
+                            "rate": str(effective_unit_price),
+                            "amount": str(movement_amount),
+                            "date": txn.date.isoformat(),
+                            "reference_type": txn.reference_type,
+                            "reference_id": str(txn.reference_id) if txn.reference_id else None,
+                            "remarks": txn.remarks,
+                        }
+                    )
+
                 running_stock = _apply_inventory_movement(running_stock, txn)
             closing_stock = running_stock
             stock_value = closing_stock * item.purchase_price
-            sold_value = sold_qty * item.sale_price
-            estimated_margin = sold_qty * (item.sale_price - item.purchase_price)
             sales_velocity_per_day = sold_qty / Decimal(str(days_in_range))
             days_of_stock_left = None
             if sales_velocity_per_day > 0 and closing_stock > 0:
@@ -524,6 +637,19 @@ class ReportsService:
             key=lambda item_data: Decimal(item_data["stock_value"]),
             reverse=True,
         )
+        movement_entries = sorted(
+            movement_entries,
+            key=lambda entry: entry["date"],
+            reverse=True,
+        )
+        movement_summary_payload = {
+            key: {
+                "entries": value["entries"],
+                "qty": str(value["qty"]),
+                "amount": str(value["amount"]),
+            }
+            for key, value in movement_summary.items()
+        }
 
         return {
             "start_date": start_date.isoformat(),
@@ -541,6 +667,13 @@ class ReportsService:
             "fast_moving_items": fast_moving_items,
             "dead_stock_items": dead_stock_items,
             "items": items_payload,
+            "entries": movement_summary_payload["all"]["entries"],
+            "total_qty": movement_summary_payload["all"]["qty"],
+            "total_amount": movement_summary_payload["all"]["amount"],
+            "in_summary": movement_summary_payload["in"],
+            "out_summary": movement_summary_payload["out"],
+            "movement_summary": movement_summary_payload,
+            "movement_entries": movement_entries,
         }
 
     @staticmethod
