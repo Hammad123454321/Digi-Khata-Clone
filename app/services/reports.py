@@ -9,6 +9,7 @@ from beanie.operators import In
 from app.models.invoice import Invoice, InvoiceType, InvoiceItem
 from app.models.expense import Expense
 from app.models.cash import CashTransaction, CashTransactionType
+from app.models.customer import Customer
 from app.models.item import Item, InventoryTransaction, InventoryTransactionType, LowStockAlert
 from app.core.logging import get_logger
 from app.core.exceptions import ValidationError
@@ -359,6 +360,28 @@ class ReportsService:
                     "out": {"entries": 0, "qty": "0.00", "amount": "0.00"},
                 },
                 "movement_entries": [],
+                "period_summary": {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "days_in_range": 0,
+                    "sold_entries": 0,
+                    "sold_qty": "0.00",
+                    "sold_value": "0.00",
+                    "outgoing_entries": 0,
+                    "outgoing_qty": "0.00",
+                    "outgoing_value": "0.00",
+                    "left_qty": "0.00",
+                    "left_value": "0.00",
+                },
+                "sold_items": [],
+                "sold_items_customer_breakdown": [],
+                "remaining_stock_snapshot": [],
+                "profit_loss_summary": {
+                    "sales_revenue": "0.00",
+                    "cogs": "0.00",
+                    "gross_profit": "0.00",
+                    "gross_margin_percent": "0.00",
+                },
             }
 
         item_ids = [item.id for item in items if item.id is not None]
@@ -383,6 +406,8 @@ class ReportsService:
             low_stock_map = {str(alert.item_id): alert for alert in low_stock_alerts}
 
         invoice_sale_price_by_invoice_and_item: dict[tuple[str, str], Decimal] = {}
+        invoice_lookup: dict[str, Invoice] = {}
+        customer_name_by_id: dict[str, str] = {}
         if transactions:
             invoice_reference_ids = {
                 txn.reference_id
@@ -390,6 +415,26 @@ class ReportsService:
                 if txn.reference_type == "invoice" and txn.reference_id is not None
             }
             if invoice_reference_ids:
+                invoices = await Invoice.find(
+                    Invoice.business_id == business_obj_id,
+                    In(Invoice.id, list(invoice_reference_ids)),
+                ).to_list()
+                invoice_lookup = {str(invoice.id): invoice for invoice in invoices}
+
+                customer_ids = {
+                    invoice.customer_id
+                    for invoice in invoices
+                    if invoice.customer_id is not None
+                }
+                if customer_ids:
+                    customers = await Customer.find(
+                        Customer.business_id == business_obj_id,
+                        In(Customer.id, list(customer_ids)),
+                    ).to_list()
+                    customer_name_by_id = {
+                        str(customer.id): customer.name for customer in customers
+                    }
+
                 invoice_items = await InvoiceItem.find(
                     In(InvoiceItem.invoice_id, list(invoice_reference_ids)),
                     In(InvoiceItem.item_id, item_ids),
@@ -414,19 +459,27 @@ class ReportsService:
         total_sold_qty = Decimal("0.00")
         total_sold_value = Decimal("0.00")
         total_estimated_margin = Decimal("0.00")
+        total_cogs = Decimal("0.00")
+        total_left_qty = Decimal("0.00")
+        sold_entries_count = 0
 
         out_of_stock_count = 0
         low_stock_count = 0
         dead_stock_count = 0
         fast_moving_candidates = []
         dead_stock_items = []
+        sold_items_payload = []
         items_payload = []
         movement_entries = []
+        sold_item_customer_rollup: dict[str, dict[str, dict]] = defaultdict(dict)
         movement_summary = {
             "all": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
             "in": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
             "out": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
         }
+
+        def _decimal_to_string(value: Decimal, precision: int = 2) -> str:
+            return f"{value:.{precision}f}"
 
         def _apply_inventory_movement(running_stock: Decimal, txn: InventoryTransaction) -> Decimal:
             if txn.transaction_type == InventoryTransactionType.STOCK_IN:
@@ -482,6 +535,7 @@ class ReportsService:
                     if effective_unit_price <= 0:
                         effective_unit_price = item.sale_price
                     if txn.reference_type == "invoice":
+                        invoice_id_str = str(txn.reference_id) if txn.reference_id else None
                         invoice_rate = None
                         if txn.reference_id is not None:
                             invoice_rate = invoice_sale_price_by_invoice_and_item.get(
@@ -490,10 +544,39 @@ class ReportsService:
                         if invoice_rate is not None and invoice_rate > 0:
                             effective_unit_price = invoice_rate
                         sold_qty += txn.quantity
+                        sold_entries_count += 1
                         sold_value += txn.quantity * effective_unit_price
+                        total_cogs += txn.quantity * item.purchase_price
                         estimated_margin += txn.quantity * (
                             effective_unit_price - item.purchase_price
                         )
+                        if invoice_id_str is not None:
+                            invoice = invoice_lookup.get(invoice_id_str)
+                            customer_name = "Unknown Customer"
+                            if invoice is not None and invoice.customer_id is not None:
+                                customer_name = customer_name_by_id.get(
+                                    str(invoice.customer_id), "Unknown Customer"
+                                )
+
+                            customer_entry = sold_item_customer_rollup[item_id_str].get(
+                                customer_name
+                            )
+                            if customer_entry is None:
+                                customer_entry = {
+                                    "customer_name": customer_name,
+                                    "qty": Decimal("0.000"),
+                                    "amount": Decimal("0.00"),
+                                    "invoice_ids": set(),
+                                    "last_sale_at": None,
+                                }
+                                sold_item_customer_rollup[item_id_str][customer_name] = customer_entry
+
+                            customer_entry["qty"] += txn.quantity
+                            customer_entry["amount"] += txn.quantity * effective_unit_price
+                            customer_entry["invoice_ids"].add(invoice_id_str)
+                            current_last_sale = customer_entry["last_sale_at"]
+                            if current_last_sale is None or txn.date > current_last_sale:
+                                customer_entry["last_sale_at"] = txn.date
                 elif txn.transaction_type == InventoryTransactionType.WASTAGE:
                     wastage_qty += txn.quantity
                     movement_direction = "out"
@@ -550,6 +633,8 @@ class ReportsService:
             days_of_stock_left = None
             if sales_velocity_per_day > 0 and closing_stock > 0:
                 days_of_stock_left = closing_stock / sales_velocity_per_day
+            if closing_stock > 0:
+                total_left_qty += closing_stock
 
             total_stock_value += stock_value
             total_sold_qty += sold_qty
@@ -591,6 +676,20 @@ class ReportsService:
                         "sold_qty": str(sold_qty),
                         "sold_value": str(sold_value),
                         "unit": item.unit.value,
+                    }
+                )
+                average_sale_rate = sold_value / sold_qty if sold_qty > 0 else Decimal("0.00")
+                sold_items_payload.append(
+                    {
+                        "item_id": item_id_str,
+                        "item_name": item.name,
+                        "unit": item.unit.value,
+                        "sold_qty": str(sold_qty),
+                        "sold_amount": str(sold_value),
+                        "avg_sale_rate": str(average_sale_rate),
+                        "left_qty": str(closing_stock),
+                        "left_value": str(stock_value),
+                        "gross_profit": str(estimated_margin),
                     }
                 )
 
@@ -650,6 +749,136 @@ class ReportsService:
             }
             for key, value in movement_summary.items()
         }
+        sold_items_payload = sorted(
+            sold_items_payload,
+            key=lambda item_data: Decimal(item_data["sold_amount"]),
+            reverse=True,
+        )
+        remaining_stock_snapshot = [
+            {
+                "item_name": item_data["name"],
+                "unit": item_data["unit"],
+                "left_qty": item_data["closing_stock"],
+                "left_value": item_data["stock_value"],
+            }
+            for item_data in sorted(
+                items_payload,
+                key=lambda item_data: Decimal(item_data["stock_value"]),
+                reverse=True,
+            )
+            if Decimal(item_data["closing_stock"]) > 0
+        ]
+
+        sold_items_customer_breakdown = []
+        top_customers_limit = 10
+        inline_customers_limit = 3
+        sold_item_lookup = {item["item_id"]: item for item in sold_items_payload}
+        for sold_item in sold_items_payload:
+            item_id = sold_item["item_id"]
+            customer_entries_raw = list(sold_item_customer_rollup.get(item_id, {}).values())
+            customer_entries_sorted = sorted(
+                customer_entries_raw,
+                key=lambda entry: entry["amount"],
+                reverse=True,
+            )
+
+            top_customers_raw = customer_entries_sorted[:top_customers_limit]
+            overflow_customers = customer_entries_sorted[top_customers_limit:]
+            if overflow_customers:
+                others_qty = sum(
+                    (entry["qty"] for entry in overflow_customers),
+                    Decimal("0.000"),
+                )
+                others_amount = sum(
+                    (entry["amount"] for entry in overflow_customers),
+                    Decimal("0.00"),
+                )
+                others_invoice_count = len(
+                    {
+                        invoice_id
+                        for entry in overflow_customers
+                        for invoice_id in entry["invoice_ids"]
+                    }
+                )
+                others_last_sale_at = None
+                for entry in overflow_customers:
+                    last_sale_at = entry["last_sale_at"]
+                    if last_sale_at is not None and (
+                        others_last_sale_at is None or last_sale_at > others_last_sale_at
+                    ):
+                        others_last_sale_at = last_sale_at
+
+                top_customers_raw.append(
+                    {
+                        "customer_name": "Others",
+                        "qty": others_qty,
+                        "amount": others_amount,
+                        "invoice_ids": set(),
+                        "invoice_count": others_invoice_count,
+                        "last_sale_at": others_last_sale_at,
+                    }
+                )
+
+            customers_payload = []
+            for entry in top_customers_raw:
+                invoice_count = entry.get("invoice_count")
+                if invoice_count is None:
+                    invoice_count = len(entry["invoice_ids"])
+                customers_payload.append(
+                    {
+                        "customer_name": entry["customer_name"],
+                        "qty": _decimal_to_string(entry["qty"], 3),
+                        "amount": _decimal_to_string(entry["amount"], 2),
+                        "invoice_count": invoice_count,
+                        "last_sale_at": (
+                            entry["last_sale_at"].isoformat()
+                            if entry["last_sale_at"] is not None
+                            else None
+                        ),
+                    }
+                )
+
+            sold_item["top_customers"] = customers_payload[:inline_customers_limit]
+            sold_items_customer_breakdown.append(
+                {
+                    "item_id": item_id,
+                    "item_name": sold_item["item_name"],
+                    "unit": sold_item["unit"],
+                    "customers": customers_payload,
+                }
+            )
+
+        sold_items_customer_breakdown = sorted(
+            sold_items_customer_breakdown,
+            key=lambda entry: Decimal(sold_item_lookup[entry["item_id"]]["sold_amount"]),
+            reverse=True,
+        )
+
+        gross_profit = total_sold_value - total_cogs
+        gross_margin_percent = Decimal("0.00")
+        if total_sold_value > 0:
+            gross_margin_percent = (gross_profit / total_sold_value) * Decimal("100")
+
+        period_summary = {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "days_in_range": days_in_range,
+            "sold_entries": sold_entries_count,
+            "sold_qty": _decimal_to_string(total_sold_qty, 3),
+            "sold_value": _decimal_to_string(total_sold_value, 2),
+            "outgoing_entries": movement_summary["out"]["entries"],
+            "outgoing_qty": _decimal_to_string(movement_summary["out"]["qty"], 3),
+            "outgoing_value": _decimal_to_string(movement_summary["out"]["amount"], 2),
+            "left_qty": _decimal_to_string(total_left_qty, 3),
+            "left_value": _decimal_to_string(total_stock_value, 2),
+        }
+
+        profit_loss_summary = {
+            "sales_revenue": _decimal_to_string(total_sold_value, 2),
+            "cogs": _decimal_to_string(total_cogs, 2),
+            "gross_profit": _decimal_to_string(gross_profit, 2),
+            "gross_margin_percent": _decimal_to_string(gross_margin_percent, 2),
+        }
 
         return {
             "start_date": start_date.isoformat(),
@@ -674,6 +903,11 @@ class ReportsService:
             "out_summary": movement_summary_payload["out"],
             "movement_summary": movement_summary_payload,
             "movement_entries": movement_entries,
+            "period_summary": period_summary,
+            "sold_items": sold_items_payload,
+            "sold_items_customer_breakdown": sold_items_customer_breakdown,
+            "remaining_stock_snapshot": remaining_stock_snapshot,
+            "profit_loss_summary": profit_loss_summary,
         }
 
     @staticmethod

@@ -71,5 +71,24 @@ temp/
 *.tmp
 
 flutter_app/
+!flutter_app/
+flutter_app/*
+!flutter_app/lib/
+flutter_app/lib/*
+!flutter_app/lib/data/
+flutter_app/lib/data/*
+!flutter_app/lib/data/repositories/
+flutter_app/lib/data/repositories/*
+!flutter_app/lib/data/repositories/reports_repository.dart
+!flutter_app/lib/features/
+flutter_app/lib/features/*
+!flutter_app/lib/features/reports/
+flutter_app/lib/features/reports/*
+!flutter_app/lib/features/reports/screens/
+flutter_app/lib/features/reports/screens/*
+!flutter_app/lib/features/reports/screens/stock_report_screen.dart
+!flutter_app/lib/features/reports/utils/
+flutter_app/lib/features/reports/utils/*
+!flutter_app/lib/features/reports/utils/report_exporter.dart
 
 tmp_video_frames/
