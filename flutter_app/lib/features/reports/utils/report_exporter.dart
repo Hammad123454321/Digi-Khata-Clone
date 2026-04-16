@@ -1,12 +1,30 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/di/injection.dart';
 import '../../../core/localization/app_localizations.dart';
 import '../../../core/storage/local_storage_service.dart';
+
+class ReportShareResult {
+  const ReportShareResult({
+    required this.success,
+    this.message,
+    this.usedFallback = false,
+  });
+
+  final bool success;
+  final String? message;
+  final bool usedFallback;
+}
 
 class ReportExporter {
   ReportExporter._();
@@ -14,118 +32,125 @@ class ReportExporter {
   static const double _outerBorder = 1.2;
   static const double _innerBorder = 0.75;
 
-  static Future<void> shareReportPdf({
+  static Future<ReportShareResult> shareReportPdf({
     required AppLocalizations loc,
     required String title,
     required Map<String, dynamic> report,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    if (_isStockReport(report)) {
-      await _shareStockReportPdf(
+    try {
+      if (_isStockReport(report)) {
+        return await _shareStockReportPdf(
+          loc: loc,
+          title: title,
+          report: report,
+          startDate: startDate,
+          endDate: endDate,
+        );
+      }
+
+      final doc = pw.Document();
+      final generatedAt = DateTime.now();
+      final localStorage = getIt<LocalStorageService>();
+      final logo = await _loadLogo();
+
+      final scalarRows = _extractScalarRows(report);
+      final listSections = _extractListSections(report);
+
+      final tableModel = _buildTableModel(
         loc: loc,
-        title: title,
-        report: report,
-        startDate: startDate,
-        endDate: endDate,
+        scalarRows: scalarRows,
+        listSections: listSections,
       );
-      return;
-    }
+      final totals = _buildTotalsRows(
+        loc: loc,
+        scalarRows: scalarRows,
+        tableRowsCount: tableModel.rows.length,
+      );
 
-    final doc = pw.Document();
-    final generatedAt = DateTime.now();
-    final localStorage = getIt<LocalStorageService>();
-    final logo = await _loadLogo();
-
-    final scalarRows = _extractScalarRows(report);
-    final listSections = _extractListSections(report);
-
-    final tableModel = _buildTableModel(
-      loc: loc,
-      scalarRows: scalarRows,
-      listSections: listSections,
-    );
-    final totals = _buildTotalsRows(
-      loc: loc,
-      scalarRows: scalarRows,
-      tableRowsCount: tableModel.rows.length,
-    );
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(18, 18, 18, 18),
-        build: (_) => [
-          _buildHeader(
-            title: title,
-            logo: logo,
-            qrData: '$title|${generatedAt.toIso8601String()}',
-            businessName: localStorage.getBusinessName() ?? 'Business',
-            businessPhone: localStorage.getUserPhone() ?? '',
-          ),
-          pw.SizedBox(height: 12),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: _buildMetaTable([
-                  (loc.report, title),
-                  (
-                    loc.dateRange,
-                    _buildDateRangeText(
-                      startDate: startDate,
-                      endDate: endDate,
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.fromLTRB(18, 18, 18, 18),
+          build: (_) => [
+            _buildHeader(
+              title: title,
+              logo: logo,
+              qrData: '$title|${generatedAt.toIso8601String()}',
+              businessName: localStorage.getBusinessName() ?? 'Business',
+              businessPhone: localStorage.getUserPhone() ?? '',
+            ),
+            pw.SizedBox(height: 12),
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: _buildMetaTable([
+                    (loc.report, title),
+                    (
+                      loc.dateRange,
+                      _buildDateRangeText(
+                        startDate: startDate,
+                        endDate: endDate,
+                      ),
                     ),
+                    (loc.entries, '${tableModel.actualRowsCount}'),
+                    (loc.date, DateFormat('dd/MM/yyyy').format(generatedAt)),
+                  ]),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  child: _buildMetaTable(
+                    scalarRows.take(4).isEmpty
+                        ? [(loc.total, '-')]
+                        : scalarRows.take(4).toList(growable: false),
                   ),
-                  (loc.entries, '${tableModel.actualRowsCount}'),
-                  (loc.date, DateFormat('dd/MM/yyyy').format(generatedAt)),
-                ]),
-              ),
-              pw.SizedBox(width: 10),
-              pw.Expanded(
-                child: _buildMetaTable(
-                  scalarRows.take(4).isEmpty
-                      ? [(loc.total, '-')]
-                      : scalarRows.take(4).toList(growable: false),
                 ),
-              ),
-            ],
-          ),
-          pw.SizedBox(height: 12),
-          _buildTable(
-            headers: tableModel.headers,
-            rows: tableModel.rows,
-          ),
-          pw.SizedBox(height: tableModel.rows.length <= 10 ? 120 : 12),
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Expanded(
-                child: pw.Text(
-                  loc.additionalNotes,
-                  style: const pw.TextStyle(fontSize: 8.2),
+              ],
+            ),
+            pw.SizedBox(height: 12),
+            _buildTable(
+              headers: tableModel.headers,
+              rows: tableModel.rows,
+            ),
+            pw.SizedBox(height: tableModel.rows.length <= 10 ? 120 : 12),
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Text(
+                    loc.additionalNotes,
+                    style: const pw.TextStyle(fontSize: 8.2),
+                  ),
                 ),
-              ),
-              pw.SizedBox(width: 10),
-              _buildTotalsPanel(totals),
-            ],
-          ),
-          pw.SizedBox(height: 10),
-          _buildNotesPanel(loc),
-          pw.SizedBox(height: 10),
-          _buildFooter(
-            generatedBy: localStorage.getUserName() ?? loc.system,
-            generatedAt: generatedAt,
-          ),
-        ],
-      ),
-    );
+                pw.SizedBox(width: 10),
+                _buildTotalsPanel(totals),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            _buildNotesPanel(loc),
+            pw.SizedBox(height: 10),
+            _buildFooter(
+              generatedBy: localStorage.getUserName() ?? loc.system,
+              generatedAt: generatedAt,
+            ),
+          ],
+        ),
+      );
 
-    final bytes = await doc.save();
-    await Printing.sharePdf(
-      bytes: bytes,
-      filename: _buildFileName(title, generatedAt),
-    );
+      final bytes = await doc.save();
+      final filename = _buildFileName(title, generatedAt);
+      return await _sharePdfWithFallback(
+        bytes: bytes,
+        filename: filename,
+      );
+    } catch (e) {
+      return ReportShareResult(
+        success: false,
+        message: 'Failed to generate report PDF: $e',
+      );
+    }
   }
 
   static bool _isStockReport(Map<String, dynamic> report) {
@@ -134,7 +159,7 @@ class ReportExporter {
         report.containsKey('profit_loss_summary');
   }
 
-  static Future<void> _shareStockReportPdf({
+  static Future<ReportShareResult> _shareStockReportPdf({
     required AppLocalizations loc,
     required String title,
     required Map<String, dynamic> report,
@@ -352,10 +377,45 @@ class ReportExporter {
     );
 
     final bytes = await doc.save();
-    await Printing.sharePdf(
+    final filename = _buildFileName(title, generatedAt);
+    return await _sharePdfWithFallback(
       bytes: bytes,
-      filename: _buildFileName(title, generatedAt),
+      filename: filename,
     );
+  }
+
+  static Future<ReportShareResult> _sharePdfWithFallback({
+    required Uint8List bytes,
+    required String filename,
+  }) async {
+    try {
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: filename,
+      );
+      return const ReportShareResult(success: true);
+    } catch (_) {
+      try {
+        final tempDir = await getTemporaryDirectory();
+        final filePath = path.join(tempDir.path, filename);
+        final file = File(filePath);
+        await file.writeAsBytes(bytes, flush: true);
+
+        await Share.shareXFiles(
+          [XFile(file.path, mimeType: 'application/pdf')],
+          subject: filename,
+        );
+        return const ReportShareResult(
+          success: true,
+          usedFallback: true,
+        );
+      } catch (e) {
+        return ReportShareResult(
+          success: false,
+          message: 'Failed to share report PDF: $e',
+        );
+      }
+    }
   }
 
   static Future<pw.MemoryImage?> _loadLogo() async {
@@ -894,4 +954,15 @@ class _ReportTableModel {
   final List<String> headers;
   final List<List<String>> rows;
   final int actualRowsCount;
+}
+class ReportShareResult {
+  const ReportShareResult({
+    required this.success,
+    this.message,
+    this.usedFallback = false,
+  });
+
+  final bool success;
+  final String? message;
+  final bool usedFallback;
 }

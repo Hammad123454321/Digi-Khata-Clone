@@ -34,6 +34,20 @@ class TokenRefresh(BaseModel):
     """Token refresh schema."""
 
     refresh_token: str = Field(..., description="Refresh token")
+    device_id: Optional[str] = Field(
+        default=None,
+        description="Current device identifier for device-scoped sessions",
+    )
+
+
+class LogoutRequest(BaseModel):
+    """Logout schema."""
+
+    refresh_token: str = Field(..., description="Refresh token")
+    device_id: Optional[str] = Field(
+        default=None,
+        description="Current device identifier for device-scoped sessions",
+    )
 
 
 class PINSet(BaseModel):

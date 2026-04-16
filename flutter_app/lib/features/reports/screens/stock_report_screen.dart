@@ -40,6 +40,7 @@ class _StockReportScreenState extends State<StockReportScreen> {
   late DateTime _startDate;
   late DateTime _endDate;
   _StockPeriod _selectedPeriod = _StockPeriod.custom;
+  bool _isSharing = false;
 
   @override
   void initState() {
@@ -169,14 +170,39 @@ class _StockReportScreenState extends State<StockReportScreen> {
 
   Future<void> _shareReport() async {
     final report = _currentReport;
-    if (report == null) return;
+    if (report == null || _isSharing) return;
     final loc = AppLocalizations.of(context)!;
-    await ReportExporter.shareReportPdf(
+    setState(() => _isSharing = true);
+    final result = await ReportExporter.shareReportPdf(
       loc: loc,
       title: loc.stockReport,
       report: report,
       startDate: _startDate,
       endDate: _endDate,
+    );
+    if (!mounted) return;
+    setState(() => _isSharing = false);
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (result.success) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.usedFallback
+                ? 'Report shared successfully.'
+                : 'Report ready to share.',
+          ),
+          backgroundColor: AppTheme.successColor,
+        ),
+      );
+      return;
+    }
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(result.message ?? 'Failed to share report.'),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
     );
   }
 
@@ -214,8 +240,19 @@ class _StockReportScreenState extends State<StockReportScreen> {
         actions: [
           IconButton(
             tooltip: 'Share',
-            onPressed: _currentReport == null ? null : _shareReport,
-            icon: const Icon(Icons.share, color: Colors.white),
+            onPressed: (_currentReport == null || _isSharing)
+                ? null
+                : _shareReport,
+            icon: _isSharing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.share, color: Colors.white),
           ),
         ],
       ),

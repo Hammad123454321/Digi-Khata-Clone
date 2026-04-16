@@ -4,7 +4,15 @@ from starlette.requests import Request
 
 from app.core.exceptions import AuthenticationError
 from app.core.translations import translate, get_user_language
-from app.schemas.auth import OTPRequest, OTPVerify, TokenRefresh, PINSet, PINVerify, TokenResponse
+from app.schemas.auth import (
+    OTPRequest,
+    OTPVerify,
+    TokenRefresh,
+    LogoutRequest,
+    PINSet,
+    PINVerify,
+    TokenResponse,
+)
 from app.services.auth import auth_service
 from app.api.dependencies import get_current_user
 from app.models.user import User
@@ -29,7 +37,22 @@ async def verify_otp(data: OTPVerify, request: Request):
 @router.post("/refresh", response_model=dict)
 async def refresh_token(data: TokenRefresh):
     """Refresh access token."""
-    return await auth_service.refresh_access_token(data.refresh_token)
+    return await auth_service.refresh_access_token(
+        data.refresh_token, data.device_id
+    )
+
+
+@router.post("/logout", response_model=dict)
+async def logout(
+    data: LogoutRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Logout current device/session."""
+    return await auth_service.logout(
+        str(current_user.id),
+        data.refresh_token,
+        data.device_id,
+    )
 
 
 @router.post("/set-pin", response_model=dict)

@@ -1,4 +1,6 @@
 """Authentication service."""
+import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
@@ -25,6 +27,63 @@ logger = get_logger(__name__)
 
 class AuthService:
     """Authentication service."""
+
+    @staticmethod
+    def _legacy_refresh_key(user_id: str) -> str:
+        return f"refresh_token:{user_id}"
+
+    @staticmethod
+    def _session_key(user_id: str, sid: str) -> str:
+        return f"refresh_session:{user_id}:{sid}"
+
+    @staticmethod
+    def _build_session_payload(
+        refresh_token: str,
+        device_id: Optional[str],
+    ) -> str:
+        return json.dumps(
+            {
+                "refresh_token": refresh_token,
+                "device_id": device_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @staticmethod
+    def _parse_session_payload(raw_payload: Optional[str]) -> Dict[str, Any]:
+        if not raw_payload:
+            return {}
+        try:
+            parsed = json.loads(raw_payload)
+            if isinstance(parsed, dict):
+                return parsed
+        except (TypeError, ValueError):
+            # Backward compatibility in case a plain token string was stored.
+            return {"refresh_token": raw_payload}
+        return {}
+
+    @staticmethod
+    async def _get_active_user(user_id: str) -> Optional[User]:
+        user: Optional[User] = None
+        try:
+            from beanie import PydanticObjectId
+
+            user = await User.get(PydanticObjectId(user_id))
+        except (ValueError, TypeError):
+            user = None
+
+        if user is None:
+            try:
+                user = await User.find_one(
+                    User.id == int(user_id), User.is_active == True
+                )
+            except (ValueError, TypeError):
+                user = None
+
+        if not user or not user.is_active:
+            return None
+
+        return user
 
     @staticmethod
     async def request_otp(phone: str, language: str = "en") -> Dict[str, Any]:
@@ -66,6 +125,9 @@ class AuthService:
     async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str], language: str = "en") -> Dict[str, Any]:
         """Verify OTP and return tokens."""
         phone = phone.strip().replace(" ", "").replace("-", "")
+        normalized_device_id = (
+            device_id.strip() if device_id and device_id.strip() else None
+        )
 
         # Verify OTP from Redis (dev mode accepts any valid-length numeric OTP)
         redis = await get_redis()
@@ -109,20 +171,33 @@ class AuthService:
             if business:
                 businesses.append(business)
 
-        # Create tokens - use string id for ObjectId compatibility
-        access_token = create_access_token(data={"sub": str(user.id), "phone": user.phone})
-        refresh_token = create_refresh_token(data={"sub": str(user.id), "phone": user.phone})
+        # Create tokens - use string id for ObjectId compatibility.
+        sid = uuid.uuid4().hex
+        token_payload: Dict[str, Any] = {
+            "sub": str(user.id),
+            "phone": user.phone,
+            "sid": sid,
+        }
+        if normalized_device_id:
+            token_payload["device_id"] = normalized_device_id
 
-        # Store refresh token in Redis
-        refresh_key = f"refresh_token:{user.id}"
-        await redis.setex(refresh_key, settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60, refresh_token)
+        access_token = create_access_token(data=token_payload)
+        refresh_token = create_refresh_token(data=token_payload)
+
+        # Store refresh session in Redis (device-scoped).
+        session_key = AuthService._session_key(str(user.id), sid)
+        await redis.setex(
+            session_key,
+            settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            AuthService._build_session_payload(refresh_token, normalized_device_id),
+        )
 
         # Handle device registration if provided
         # Note: Device registration requires at least one business.
         # If user has no businesses, device registration is skipped.
         # User should create a business first, then register device.
         device_info = None
-        if device_id and businesses:
+        if normalized_device_id and businesses:
             from app.models.device import Device
 
             # Use first business for device registration (user can add more businesses later)
@@ -130,7 +205,7 @@ class AuthService:
 
             # Check if device already exists
             device = await Device.find_one(
-                Device.device_id == device_id,
+                Device.device_id == normalized_device_id,
                 Device.business_id == business.id,
             )
 
@@ -142,7 +217,7 @@ class AuthService:
                 device = Device(
                     business_id=business.id,
                     user_id=user.id,
-                    device_id=device_id,
+                    device_id=normalized_device_id,
                     device_name=device_name or "Unknown Device",
                     is_active=True,
                     last_sync_at=datetime.now(timezone.utc),
@@ -150,12 +225,12 @@ class AuthService:
                 await device.insert()
 
             device_info = {"device_id": device.device_id, "business_id": str(business.id)}
-        elif device_id and not businesses:
+        elif normalized_device_id and not businesses:
             # Log that device registration was skipped due to no businesses
             logger.info(
                 "device_registration_skipped_no_business",
                 user_id=str(user.id),
-                device_id=device_id,
+                device_id=normalized_device_id,
                 message="User has no businesses. Device registration skipped. Create a business first."
             )
 
@@ -187,42 +262,118 @@ class AuthService:
         }
 
     @staticmethod
-    async def refresh_access_token(refresh_token: str) -> Dict[str, Any]:
+    async def refresh_access_token(
+        refresh_token: str, device_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Refresh access token using refresh token."""
         payload = verify_token(refresh_token, token_type="refresh")
         if not payload:
             raise AuthenticationError("Invalid or expired refresh token")
 
         user_id = payload.get("sub")
+        sid = payload.get("sid")
+        token_device_id = payload.get("device_id")
+        normalized_device_id = (
+            device_id.strip() if device_id and device_id.strip() else None
+        )
         if not user_id:
             raise AuthenticationError("Invalid token payload")
 
         # Verify refresh token in Redis
         redis = await get_redis()
-        refresh_key = f"refresh_token:{user_id}"
-        stored_token = await redis.get(refresh_key)
+        effective_device_id = normalized_device_id or token_device_id
+
+        if sid:
+            # Device-scoped session validation.
+            session_key = AuthService._session_key(user_id, sid)
+            session_payload = AuthService._parse_session_payload(
+                await redis.get(session_key)
+            )
+            stored_token = session_payload.get("refresh_token")
+            session_device_id = session_payload.get("device_id") or token_device_id
+            if (
+                session_device_id
+                and normalized_device_id
+                and session_device_id != normalized_device_id
+            ):
+                raise AuthenticationError("Invalid refresh token")
+            if session_device_id:
+                effective_device_id = session_device_id
+        else:
+            # Legacy fallback (pre-session-scoped refresh tokens).
+            refresh_key = AuthService._legacy_refresh_key(user_id)
+            stored_token = await redis.get(refresh_key)
 
         if not stored_token or stored_token != refresh_token:
             raise AuthenticationError("Invalid refresh token")
 
-        # Get user - try ObjectId first, then fallback
-        try:
-            from beanie import PydanticObjectId
-            user = await User.get(PydanticObjectId(user_id))
-        except (ValueError, TypeError):
-            # Fallback for int IDs if needed
-            user = await User.find_one(User.id == int(user_id), User.is_active == True)
-
+        user = await AuthService._get_active_user(user_id)
         if not user or not user.is_active:
             raise AuthenticationError("User not found or inactive")
 
         # Create new access token
-        access_token = create_access_token(data={"sub": str(user.id), "phone": user.phone})
+        access_payload: Dict[str, Any] = {
+            "sub": str(user.id),
+            "phone": user.phone,
+        }
+        if sid:
+            access_payload["sid"] = sid
+        if effective_device_id:
+            access_payload["device_id"] = effective_device_id
+
+        access_token = create_access_token(data=access_payload)
 
         return {
             "access_token": access_token,
             "token_type": "bearer",
         }
+
+    @staticmethod
+    async def logout(
+        user_id: str,
+        refresh_token: str,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Revoke current refresh session/device."""
+        payload = verify_token(refresh_token, token_type="refresh")
+        if not payload:
+            # Idempotent success to keep client logout deterministic.
+            return {"message": "Logged out successfully"}
+
+        token_user_id = payload.get("sub")
+        sid = payload.get("sid")
+        token_device_id = payload.get("device_id")
+        normalized_device_id = (
+            device_id.strip() if device_id and device_id.strip() else None
+        )
+
+        if not token_user_id or token_user_id != user_id:
+            raise AuthenticationError("Invalid refresh token")
+
+        redis = await get_redis()
+
+        if sid:
+            session_key = AuthService._session_key(user_id, sid)
+            session_payload = AuthService._parse_session_payload(
+                await redis.get(session_key)
+            )
+            session_device_id = session_payload.get("device_id") or token_device_id
+            if (
+                session_device_id
+                and normalized_device_id
+                and session_device_id != normalized_device_id
+            ):
+                raise AuthenticationError("Invalid refresh token")
+            await redis.delete(session_key)
+        else:
+            # Legacy fallback: old refresh storage was user-scoped.
+            refresh_key = AuthService._legacy_refresh_key(user_id)
+            stored_token = await redis.get(refresh_key)
+            if stored_token and stored_token == refresh_token:
+                await redis.delete(refresh_key)
+
+        logger.info("user_logged_out", user_id=user_id, sid=sid)
+        return {"message": "Logged out successfully"}
 
     @staticmethod
     async def set_pin(user_id: str, pin: str) -> Dict[str, Any]:
