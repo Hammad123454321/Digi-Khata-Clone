@@ -8,6 +8,7 @@ from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
 from app.models.business import Business
 from app.models.customer import CustomerBalance
+from app.models.invoice import Invoice, InvoiceItem, InvoiceType
 from app.schemas.customer import (
     CustomerCreate,
     CustomerUpdate,
@@ -163,6 +164,37 @@ async def list_customer_transactions(
         limit=limit,
         offset=offset,
     )
+
+    invoice_ids = [
+        t.reference_id
+        for t in transactions
+        if t.reference_type == "invoice" and t.reference_id is not None
+    ]
+    invoice_map = {}
+    invoice_item_counts: dict[str, int] = {}
+    if invoice_ids:
+        invoices = await Invoice.find(
+            Invoice.business_id == current_business.id,
+            Invoice.id.in_(invoice_ids),
+        ).to_list()
+        invoice_map = {str(invoice.id): invoice for invoice in invoices}
+
+        invoice_items = await InvoiceItem.find(
+            InvoiceItem.invoice_id.in_(invoice_ids),
+        ).to_list()
+        for item in invoice_items:
+            key = str(item.invoice_id)
+            invoice_item_counts[key] = invoice_item_counts.get(key, 0) + 1
+
+    def _invoice_status(invoice: Invoice) -> str:
+        if invoice.invoice_type == InvoiceType.CASH:
+            return "paid"
+        if invoice.paid_amount >= invoice.total_amount:
+            return "paid"
+        if invoice.paid_amount > 0:
+            return "partially_paid"
+        return "unpaid"
+
     # Convert ObjectIds to strings for response
     return [
         CustomerTransactionResponse(
@@ -173,6 +205,31 @@ async def list_customer_transactions(
             reference_id=str(t.reference_id) if t.reference_id else None,
             reference_type=t.reference_type,
             client_request_id=t.client_request_id,
+            invoice_number=(
+                invoice_map[str(t.reference_id)].invoice_number
+                if t.reference_id and str(t.reference_id) in invoice_map
+                else None
+            ),
+            invoice_date=(
+                invoice_map[str(t.reference_id)].date
+                if t.reference_id and str(t.reference_id) in invoice_map
+                else None
+            ),
+            invoice_total=(
+                invoice_map[str(t.reference_id)].total_amount
+                if t.reference_id and str(t.reference_id) in invoice_map
+                else None
+            ),
+            invoice_status=(
+                _invoice_status(invoice_map[str(t.reference_id)])
+                if t.reference_id and str(t.reference_id) in invoice_map
+                else None
+            ),
+            invoice_item_count=(
+                invoice_item_counts.get(str(t.reference_id), 0)
+                if t.reference_id and str(t.reference_id) in invoice_map
+                else None
+            ),
             remarks=t.remarks,
             created_at=t.created_at,
         )

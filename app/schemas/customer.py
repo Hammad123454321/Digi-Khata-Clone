@@ -76,6 +76,11 @@ class CustomerTransactionResponse(BaseModel):
     reference_id: Optional[str]
     reference_type: Optional[str]
     client_request_id: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    invoice_total: Optional[Decimal] = None
+    invoice_status: Optional[str] = None
+    invoice_item_count: Optional[int] = None
     remarks: Optional[str]
     created_at: datetime
 

@@ -37,6 +37,7 @@ async def create_invoice(
         tax_amount=data.tax_amount,
         discount_amount=data.discount_amount,
         remarks=data.remarks,
+        client_request_id=data.client_request_id,
         user_id=str(current_user.id),
     )
     

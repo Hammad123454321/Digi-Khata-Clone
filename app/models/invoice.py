@@ -5,6 +5,7 @@ import enum
 from decimal import Decimal
 from pydantic import Field
 from beanie import Indexed, PydanticObjectId
+from pymongo import IndexModel
 
 from app.models.base import BaseModel
 
@@ -30,6 +31,7 @@ class Invoice(BaseModel):
     total_amount: Decimal
     paid_amount: Decimal = Field(default=Decimal("0.00"))
     remarks: Optional[str] = None
+    client_request_id: Optional[str] = None  # Idempotency key from client for create retries
     pdf_path: Optional[str] = None  # Path to generated PDF
     created_by_user_id: Optional[PydanticObjectId] = None
 
@@ -42,6 +44,11 @@ class Invoice(BaseModel):
             [("business_id", 1), ("date", 1)],
             [("business_id", 1), ("invoice_type", 1), ("date", 1)],
             [("business_id", 1), ("customer_id", 1)],
+            IndexModel(
+                [("business_id", 1), ("client_request_id", 1)],
+                unique=True,
+                partialFilterExpression={"client_request_id": {"$type": "string"}},
+            ),
         ]
 
 

@@ -955,14 +955,3 @@ class _ReportTableModel {
   final List<List<String>> rows;
   final int actualRowsCount;
 }
-class ReportShareResult {
-  const ReportShareResult({
-    required this.success,
-    this.message,
-    this.usedFallback = false,
-  });
-
-  final bool success;
-  final String? message;
-  final bool usedFallback;
-}

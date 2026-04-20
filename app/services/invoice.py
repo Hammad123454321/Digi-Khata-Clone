@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict
 from decimal import Decimal
 from beanie import PydanticObjectId
+from pymongo.errors import DuplicateKeyError
 
 from app.core.exceptions import NotFoundError, BusinessLogicError, ValidationError
 from app.models.invoice import Invoice, InvoiceItem, InvoiceType
@@ -46,6 +47,7 @@ class InvoiceService:
         tax_amount: Decimal = Decimal("0.00"),
         discount_amount: Decimal = Decimal("0.00"),
         remarks: Optional[str] = None,
+        client_request_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> Invoice:
         """Create a new invoice."""
@@ -73,6 +75,30 @@ class InvoiceService:
         except (ValueError, TypeError):
             raise NotFoundError("Invalid customer ID format")
 
+        normalized_request_id = (
+            client_request_id.strip()
+            if isinstance(client_request_id, str)
+            else None
+        )
+        if normalized_request_id == "":
+            normalized_request_id = None
+
+        # Idempotency guard: if this invoice request was already processed, return it.
+        if normalized_request_id:
+            existing_invoice = await Invoice.find_one(
+                Invoice.business_id == business_obj_id,
+                Invoice.client_request_id == normalized_request_id,
+            )
+            if existing_invoice:
+                logger.info(
+                    "invoice_idempotent_replay",
+                    business_id=business_id,
+                    client_request_id=normalized_request_id,
+                    invoice_id=str(existing_invoice.id),
+                    invoice_number=existing_invoice.invoice_number,
+                )
+                return existing_invoice
+
         # Validate stock availability BEFORE creating invoice
         from app.services.stock import stock_service
         for item_data in items:
@@ -89,9 +115,6 @@ class InvoiceService:
                         )
                 except NotFoundError:
                     raise NotFoundError(f"Item with id {item_id} not found")
-
-        # Generate invoice number
-        invoice_number = await InvoiceService.generate_invoice_number(business_id)
 
         # Calculate subtotal
         subtotal = sum(item["quantity"] * item["unit_price"] for item in items)
@@ -112,21 +135,50 @@ class InvoiceService:
             if not normalized_remarks:
                 normalized_remarks = None
         
-        invoice = Invoice(
-            business_id=business_obj_id,
-            customer_id=customer_obj_id,
-            invoice_number=invoice_number,
-            invoice_type=InvoiceType(invoice_type),
-            date=date,
-            subtotal=subtotal,
-            tax_amount=tax_amount,
-            discount_amount=discount_amount,
-            total_amount=total_amount,
-            paid_amount=Decimal("0.00") if invoice_type == "credit" else total_amount,
-            remarks=normalized_remarks,
-            created_by_user_id=user_obj_id,
-        )
-        await invoice.insert()
+        invoice = None
+        invoice_number = None
+        max_attempts = 3
+        for _ in range(max_attempts):
+            invoice_number = await InvoiceService.generate_invoice_number(business_id)
+            candidate = Invoice(
+                business_id=business_obj_id,
+                customer_id=customer_obj_id,
+                invoice_number=invoice_number,
+                invoice_type=InvoiceType(invoice_type),
+                date=date,
+                subtotal=subtotal,
+                tax_amount=tax_amount,
+                discount_amount=discount_amount,
+                total_amount=total_amount,
+                paid_amount=Decimal("0.00") if invoice_type == "credit" else total_amount,
+                remarks=normalized_remarks,
+                client_request_id=normalized_request_id,
+                created_by_user_id=user_obj_id,
+            )
+            try:
+                await candidate.insert()
+                invoice = candidate
+                break
+            except DuplicateKeyError:
+                if normalized_request_id:
+                    existing_invoice = await Invoice.find_one(
+                        Invoice.business_id == business_obj_id,
+                        Invoice.client_request_id == normalized_request_id,
+                    )
+                    if existing_invoice:
+                        logger.info(
+                            "invoice_idempotent_duplicate_blocked",
+                            business_id=business_id,
+                            client_request_id=normalized_request_id,
+                            invoice_id=str(existing_invoice.id),
+                            invoice_number=existing_invoice.invoice_number,
+                        )
+                        return existing_invoice
+                # Retry on collision (for example, race on invoice_number generation).
+                continue
+
+        if invoice is None or invoice_number is None:
+            raise BusinessLogicError("Unable to create invoice at the moment. Please retry.")
 
         # Create invoice items and update stock
         for item_data in items:
