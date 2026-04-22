@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from prometheus_client import make_asgi_app
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -124,8 +125,21 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors."""
+    def _sanitize_validation_errors(raw_errors: list[dict]) -> list[dict]:
+        sanitized: list[dict] = []
+        for error in raw_errors:
+            item = dict(error)
+            ctx = item.get("ctx")
+            if isinstance(ctx, dict):
+                item["ctx"] = {
+                    key: (str(value) if isinstance(value, Exception) else value)
+                    for key, value in ctx.items()
+                }
+            sanitized.append(item)
+        return sanitized
+
     # Log validation errors for debugging
-    errors = exc.errors()
+    errors = _sanitize_validation_errors(exc.errors())
     logger.warning(
         "validation_error",
         path=request.url.path,
@@ -135,7 +149,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     origin = request.headers.get("origin", "*")
     response = JSONResponse(
         status_code=422,
-        content={"detail": errors},
+        content=jsonable_encoder({"detail": errors}),
     )
     response.headers["Access-Control-Allow-Origin"] = origin if origin != "*" else "*"
     response.headers["Access-Control-Allow-Credentials"] = "false"

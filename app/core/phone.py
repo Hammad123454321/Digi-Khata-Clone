@@ -24,14 +24,17 @@ def normalize_phone_number(
         raise ValidationError("Phone number is required")
     if cleaned.startswith("00"):
         cleaned = f"+{cleaned[2:]}"
+    parse_attempts: list[tuple[str, str | None]] = []
+    parse_attempts.append((cleaned, default_region if not cleaned.startswith("+") else None))
+    if not cleaned.startswith("+") and cleaned.isdigit():
+        parse_attempts.append((f"+{cleaned}", None))
 
-    try:
-        parsed = phonenumbers.parse(cleaned, default_region)
-    except phonenumbers.NumberParseException as exc:
-        raise ValidationError("Invalid phone number format") from exc
+    for candidate, region in parse_attempts:
+        try:
+            parsed = phonenumbers.parse(candidate, region)
+        except phonenumbers.NumberParseException:
+            continue
+        if phonenumbers.is_possible_number(parsed) and phonenumbers.is_valid_number(parsed):
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
-    if not phonenumbers.is_possible_number(parsed) or not phonenumbers.is_valid_number(parsed):
-        raise ValidationError("Invalid phone number format")
-
-    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-
+    raise ValidationError("Invalid phone number format")

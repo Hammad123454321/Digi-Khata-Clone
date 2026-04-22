@@ -58,6 +58,7 @@ alembic/versions/*.pyc
 backups/
 *.backup
 flutter_app/
+flutter_ap/
 tmp_video_analysis/
 tmp_video_frames/
 # Temporary files

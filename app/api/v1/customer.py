@@ -3,6 +3,7 @@ from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
 from fastapi import APIRouter, Depends, Query
+from beanie.operators import In
 
 from app.api.dependencies import get_current_user, get_current_business
 from app.models.user import User
@@ -175,12 +176,12 @@ async def list_customer_transactions(
     if invoice_ids:
         invoices = await Invoice.find(
             Invoice.business_id == current_business.id,
-            Invoice.id.in_(invoice_ids),
+            In(Invoice.id, invoice_ids),
         ).to_list()
         invoice_map = {str(invoice.id): invoice for invoice in invoices}
 
         invoice_items = await InvoiceItem.find(
-            InvoiceItem.invoice_id.in_(invoice_ids),
+            In(InvoiceItem.invoice_id, invoice_ids),
         ).to_list()
         for item in invoice_items:
             key = str(item.invoice_id)
