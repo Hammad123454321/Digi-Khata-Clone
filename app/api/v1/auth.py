@@ -14,8 +14,13 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.services.auth import auth_service
-from app.api.dependencies import get_current_user
+from app.api.dependencies import (
+    get_current_user,
+    get_current_membership,
+    get_current_permissions,
+)
 from app.models.user import User
+from app.models.user import UserMembership
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -92,4 +97,20 @@ async def update_language(
     await current_user.save()
 
     return {"language_preference": current_user.language_preference}
+
+
+@router.get("/me/permissions", response_model=dict)
+async def get_my_permissions(
+    current_user: User = Depends(get_current_user),
+    membership: UserMembership = Depends(get_current_membership),
+    permissions: dict = Depends(get_current_permissions),
+):
+    """Get effective permissions for selected business membership."""
+    return {
+        "user_id": str(current_user.id),
+        "business_id": str(membership.business_id),
+        "legacy_role": membership.role.value,
+        "role_id": str(membership.custom_role_id) if membership.custom_role_id else None,
+        "permissions": permissions,
+    }
 

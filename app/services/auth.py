@@ -1,8 +1,10 @@
 """Authentication service."""
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+
+from beanie.operators import In
 
 from app.core.security import (
     generate_otp,
@@ -14,11 +16,14 @@ from app.core.security import (
 )
 from app.core.config import get_settings
 from app.core.redis_client import get_redis
-from app.core.exceptions import AuthenticationError, BusinessLogicError, NotFoundError
+from app.core.exceptions import AuthenticationError, BusinessLogicError, NotFoundError, ValidationError
 from app.core.translations import translate
-from app.models.user import User, UserMembership, UserRoleEnum
+from app.models.user import User, UserMembership
 from app.models.business import Business
 from app.services.sms import sms_service
+from app.services.twilio_verify import twilio_verify_service
+from app.services.rbac import rbac_service
+from app.core.phone import normalize_phone_number
 from app.core.logging import get_logger
 
 settings = get_settings()
@@ -88,8 +93,13 @@ class AuthService:
     @staticmethod
     async def request_otp(phone: str, language: str = "en") -> Dict[str, Any]:
         """Request OTP for phone number."""
-        # Normalize phone number
-        phone = phone.strip().replace(" ", "").replace("-", "")
+        try:
+            phone = normalize_phone_number(
+                phone,
+                default_region=settings.OTP_DEFAULT_REGION,
+            )
+        except ValidationError as exc:
+            raise BusinessLogicError(str(exc)) from exc
 
         # Check rate limiting
         redis = await get_redis()
@@ -100,19 +110,18 @@ class AuthService:
                 translate("max_otp_attempts", language, minutes=settings.OTP_EXPIRE_MINUTES)
             )
 
-        # Generate OTP
-        otp = generate_otp()
-
-        # Store OTP in Redis with expiration
-        otp_key = f"otp:{phone}"
-        await redis.setex(otp_key, settings.OTP_EXPIRE_MINUTES * 60, otp)
+        is_dev = settings.ENVIRONMENT.lower() == "development" or settings.DEBUG
+        if is_dev:
+            otp = generate_otp()
+            otp_key = f"otp:{phone}"
+            await redis.setex(otp_key, settings.OTP_EXPIRE_MINUTES * 60, otp)
+            await sms_service.send_otp(phone, otp)
+        else:
+            await twilio_verify_service.start_verification(phone)
 
         # Increment rate limit counter
         await redis.incr(rate_limit_key)
         await redis.expire(rate_limit_key, settings.OTP_EXPIRE_MINUTES * 60)
-
-        # Send OTP via SMS
-        await sms_service.send_otp(phone, otp)
 
         logger.info("otp_requested", phone=phone)
 
@@ -124,7 +133,14 @@ class AuthService:
     @staticmethod
     async def verify_otp(phone: str, otp: str, device_id: Optional[str], device_name: Optional[str], language: str = "en") -> Dict[str, Any]:
         """Verify OTP and return tokens."""
-        phone = phone.strip().replace(" ", "").replace("-", "")
+        raw_phone = phone
+        try:
+            phone = normalize_phone_number(
+                phone,
+                default_region=settings.OTP_DEFAULT_REGION,
+            )
+        except ValidationError as exc:
+            raise AuthenticationError(str(exc)) from exc
         normalized_device_id = (
             device_id.strip() if device_id and device_id.strip() else None
         )
@@ -139,14 +155,18 @@ class AuthService:
             logger.info("otp_bypass_used_dev_any", phone=phone)
             await redis.delete(otp_key)
         else:
-            stored_otp = await redis.get(otp_key)
-            if not stored_otp or stored_otp != otp:
-                raise AuthenticationError(translate("invalid_or_expired_otp", language))
-            # Delete OTP after successful verification
-            await redis.delete(otp_key)
+            await twilio_verify_service.check_verification(phone, otp)
 
-        # Get or create user
-        user = await User.find_one(User.phone == phone)
+        # Get or create user (with backward-compatible lookup for legacy stored phone formats).
+        lookup_candidates = {phone}
+        legacy_phone = raw_phone.strip().replace(" ", "").replace("-", "")
+        if legacy_phone:
+            lookup_candidates.add(legacy_phone)
+            lookup_candidates.add(legacy_phone.lstrip("0"))
+
+        user = await User.find_one(In(User.phone, list(lookup_candidates)))
+        if user and user.phone != phone:
+            user.phone = phone
 
         if not user:
             # Create new user
@@ -156,6 +176,7 @@ class AuthService:
 
         # Update last login
         user.last_login_at = datetime.now(timezone.utc)
+        await rbac_service.activate_pending_invites_for_user(user)
         await user.save()
 
         # Get user's businesses
@@ -236,6 +257,26 @@ class AuthService:
 
         logger.info("user_authenticated", user_id=str(user.id), phone=phone)
 
+        membership_by_business_id = {
+            str(membership.business_id): membership for membership in memberships
+        }
+        business_payloads = []
+        for business in businesses:
+            membership = membership_by_business_id.get(str(business.id))
+            access_payload = (
+                await rbac_service.build_business_access_payload(membership)
+                if membership is not None
+                else {}
+            )
+            business_payloads.append(
+                {
+                    "id": str(business.id),
+                    "name": business.name,
+                    "role": membership.role.value if membership else "staff",
+                    **access_payload,
+                }
+            )
+
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -248,14 +289,7 @@ class AuthService:
                 "language_preference": user.language_preference,
                 "default_business_id": str(user.default_business_id) if user.default_business_id else None,
             },
-            "businesses": [
-                {
-                    "id": str(business.id),
-                    "name": business.name,
-                    "role": next((m.role.value for m in memberships if m.business_id == business.id), "staff"),
-                }
-                for business in businesses
-            ],
+            "businesses": business_payloads,
             "device": device_info,
             "language_preference": user.language_preference,
             "default_business_id": str(user.default_business_id) if user.default_business_id else None,

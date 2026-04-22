@@ -21,6 +21,7 @@ cryptography==42.0.0
 
 # HTTP Client for SendPK & Testing
 httpx==0.26.0
+twilio==9.0.5
 
 # PDF Generation
 reportlab==4.0.7

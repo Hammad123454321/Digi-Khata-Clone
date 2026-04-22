@@ -1,6 +1,8 @@
 """Authentication schemas."""
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator
+from app.core.phone import normalize_phone_number
+from app.core.exceptions import ValidationError
 
 
 class OTPRequest(BaseModel):
@@ -12,7 +14,10 @@ class OTPRequest(BaseModel):
     @classmethod
     def validate_phone(cls, v: str) -> str:
         """Normalize phone number."""
-        return v.strip().replace(" ", "").replace("-", "")
+        try:
+            return normalize_phone_number(v)
+        except ValidationError as exc:
+            raise ValueError("Invalid phone number format") from exc
 
 
 class OTPVerify(BaseModel):
@@ -27,7 +32,10 @@ class OTPVerify(BaseModel):
     @classmethod
     def validate_phone(cls, v: str) -> str:
         """Normalize phone number."""
-        return v.strip().replace(" ", "").replace("-", "")
+        try:
+            return normalize_phone_number(v)
+        except ValidationError as exc:
+            raise ValueError("Invalid phone number format") from exc
 
 
 class TokenRefresh(BaseModel):

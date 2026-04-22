@@ -34,11 +34,13 @@ class AuthRepository {
   /// Request OTP
   Future<Result<void>> requestOtp(String phone) async {
     try {
-      await _apiClient.post(
-        ApiConstants.requestOtp,
-        data: {'phone': phone},
-        options: _publicAuthOptions,
-      ).timeout(ApiConstants.connectTimeout + const Duration(seconds: 5));
+      await _apiClient
+          .post(
+            ApiConstants.requestOtp,
+            data: {'phone': phone},
+            options: _publicAuthOptions,
+          )
+          .timeout(ApiConstants.connectTimeout + const Duration(seconds: 5));
       return const Result.success(null);
     } on AppException catch (e) {
       return Result.failure(_mapExceptionToFailure(e));
@@ -53,16 +55,18 @@ class AuthRepository {
     String? deviceName,
   }) async {
     try {
-      final response = await _apiClient.post(
-        ApiConstants.verifyOtp,
-        data: {
-          'phone': phone,
-          'otp': otp,
-          'device_id': deviceId,
-          if (deviceName != null) 'device_name': deviceName,
-        },
-        options: _publicAuthOptions,
-      ).timeout(ApiConstants.connectTimeout + const Duration(seconds: 5));
+      final response = await _apiClient
+          .post(
+            ApiConstants.verifyOtp,
+            data: {
+              'phone': phone,
+              'otp': otp,
+              'device_id': deviceId,
+              if (deviceName != null) 'device_name': deviceName,
+            },
+            options: _publicAuthOptions,
+          )
+          .timeout(ApiConstants.connectTimeout + const Duration(seconds: 5));
 
       // Check if response data is valid
       if (response.data == null) {
@@ -298,6 +302,12 @@ class AuthRepository {
       await _secureStorage.saveBusinessId(business.id);
       await _localStorage.saveSelectedBusinessId(business.id);
       await _localStorage.saveBusinessName(business.name);
+      if (business.permissions != null) {
+        await _localStorage.saveBusinessPermissions(
+          business.id,
+          business.permissions!,
+        );
+      }
     }
     // If no businesses, user will be prompted to create one
     _apiClient.resetAuthRecoveryState();

@@ -1,5 +1,5 @@
 """API dependencies."""
-from typing import Optional
+from typing import Optional, Dict
 
 from fastapi import Depends, HTTPException, Header
 from beanie import PydanticObjectId
@@ -9,6 +9,8 @@ from app.core.translations import translate, get_user_language
 from app.models.user import User, UserMembership
 from app.models.business import Business
 from app.models.device import Device
+from app.core.permissions import can_access
+from app.services.rbac import rbac_service
 
 from app.core.logging import get_logger
 from app.core.security import verify_token
@@ -55,41 +57,44 @@ async def get_current_user(
     return user
 
 
-async def get_current_business(
+async def get_current_membership(
     current_user: User = Depends(get_current_user),
     x_business_id: Optional[str] = Header(None),
-) -> Business:
-    """Get current business context from header."""
+) -> UserMembership:
+    """Get current user's active membership in selected business."""
     language = get_user_language(user=current_user)
-    
+
     if not x_business_id:
         raise HTTPException(
             status_code=400,
-            detail=translate("business_id_header_required", language)
+            detail=translate("business_id_header_required", language),
         )
 
-    # Convert business_id to ObjectId
     try:
-        from beanie import PydanticObjectId
         business_obj_id = PydanticObjectId(x_business_id)
     except (ValueError, TypeError):
         raise HTTPException(
             status_code=400,
-            detail=translate("invalid_business_id_format", language)
+            detail=translate("invalid_business_id_format", language),
         )
 
-    # Check if user has membership in this business
     membership = await UserMembership.find_one(
         UserMembership.user_id == current_user.id,
         UserMembership.business_id == business_obj_id,
         UserMembership.is_active == True,
     )
-
-    if not membership:
+    if membership is None:
         raise AuthorizationError(translate("user_no_business_access", language))
+    return membership
 
-    # Get business
-    business = await Business.get(business_obj_id)
+
+async def get_current_business(
+    current_user: User = Depends(get_current_user),
+    membership: UserMembership = Depends(get_current_membership),
+) -> Business:
+    """Get current business context from header + membership."""
+    language = get_user_language(user=current_user)
+    business = await Business.get(membership.business_id)
     if not business or not business.is_active:
         raise NotFoundError(translate("business_not_found_or_inactive", language))
 
@@ -145,3 +150,30 @@ def require_role(required_role: str):
         return membership
 
     return role_checker
+
+
+async def get_current_permissions(
+    membership: UserMembership = Depends(get_current_membership),
+) -> Dict[str, str]:
+    """Resolve current membership permissions."""
+    return await rbac_service.get_effective_permissions(membership)
+
+
+def require_permission(resource: str, action: str):
+    """Dependency factory for permission checks."""
+
+    async def permission_checker(
+        current_user: User = Depends(get_current_user),
+        permissions: Dict[str, str] = Depends(get_current_permissions),
+    ) -> Dict[str, str]:
+        language = get_user_language(user=current_user)
+        if not can_access(permissions, resource=resource, action=action):
+            raise AuthorizationError(
+                translate(
+                    "access_denied",
+                    language,
+                )
+            )
+        return permissions
+
+    return permission_checker

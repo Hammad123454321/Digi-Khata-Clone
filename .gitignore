@@ -1,3 +1,4 @@
+
 # Python
 __pycache__/
 *.py[cod]
@@ -10,15 +11,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-# Flutter source lives under flutter_app/lib (tracked)
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+
 
 # Virtual Environment
 venv/
@@ -64,13 +57,10 @@ alembic/versions/*.pyc
 # Backup files
 backups/
 *.backup
-
+flutter_app/
+tmp_video_analysis/
+tmp_video_frames/
 # Temporary files
 tmp/
 temp/
 *.tmp
-
-flutter_app/
-
-tmp_video_frames/
-tmp_video_analysis/

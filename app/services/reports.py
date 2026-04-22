@@ -42,6 +42,17 @@ class ReportsService:
             Invoice.date <= end_date,
         ).to_list()
 
+        customer_map: dict[str, str] = {}
+        customer_ids = {
+            invoice.customer_id for invoice in invoices if invoice.customer_id is not None
+        }
+        if customer_ids:
+            customers = await Customer.find(
+                Customer.business_id == business_obj_id,
+                In(Customer.id, list(customer_ids)),
+            ).to_list()
+            customer_map = {str(customer.id): customer.name for customer in customers}
+
         # Load items for each invoice - store in a separate dict to avoid model field issues
         invoice_items_map = {}
         invoice_ids = [invoice.id for invoice in invoices]
@@ -154,7 +165,41 @@ class ReportsService:
             }
             for month_key, data in sorted(monthly_sales.items())
         ]
-        
+
+        invoice_reference_rows = sorted(
+            [
+                {
+                    "reference_type": "invoice",
+                    "reference_id": str(invoice.id),
+                    "invoice_number": invoice.invoice_number,
+                    "invoice_date": invoice.date.isoformat(),
+                    "customer_name": (
+                        customer_map.get(str(invoice.customer_id), "Unknown Customer")
+                        if invoice.customer_id
+                        else "Walk-in Customer"
+                    ),
+                    "invoice_type": invoice.invoice_type.value,
+                    "invoice_total": str(invoice.total_amount),
+                    "invoice_status": (
+                        "paid"
+                        if invoice.invoice_type == InvoiceType.CASH
+                        else (
+                            "paid"
+                            if invoice.paid_amount >= invoice.total_amount
+                            else (
+                                "partially_paid"
+                                if invoice.paid_amount > 0
+                                else "unpaid"
+                            )
+                        )
+                    ),
+                }
+                for invoice in invoices
+            ],
+            key=lambda row: row["invoice_date"],
+            reverse=True,
+        )
+
         return {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -167,6 +212,8 @@ class ReportsService:
             "daily_breakdown": daily_breakdown,
             "weekly_breakdown": weekly_breakdown,
             "monthly_breakdown": monthly_breakdown,
+            "invoice_reference_rows": invoice_reference_rows,
+            "reference_rows": invoice_reference_rows,
         }
 
     @staticmethod
@@ -208,6 +255,20 @@ class ReportsService:
             for txn in transactions_list
         ]
 
+        reference_rows = [
+            {
+                "reference_type": txn.reference_type or "cash_transaction",
+                "reference_id": str(txn.reference_id) if txn.reference_id else str(txn.id),
+                "date": txn.date.isoformat(),
+                "amount": str(
+                    txn.amount if txn.transaction_type == CashTransactionType.CASH_IN else -txn.amount
+                ),
+                "direction": "inflow" if txn.transaction_type == CashTransactionType.CASH_IN else "outflow",
+                "description": txn.remarks or txn.source or "Cash Transaction",
+            }
+            for txn in transactions_list
+        ]
+
         return {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -218,6 +279,7 @@ class ReportsService:
             "total_cash_in": str(summary["total_cash_in"]),  # Keep for backward compatibility
             "total_cash_out": str(summary["total_cash_out"]),  # Keep for backward compatibility
             "transactions": transactions,
+            "reference_rows": reference_rows,
         }
 
     @staticmethod
@@ -287,7 +349,26 @@ class ReportsService:
             }
             for date_key, amount in sorted(daily_expenses.items())
         ]
-        
+
+        reference_rows = sorted(
+            [
+                {
+                    "reference_type": "expense",
+                    "reference_id": str(expense.id),
+                    "date": expense.date.isoformat(),
+                    "amount": str(expense.amount),
+                    "payment_mode": expense.payment_mode.value,
+                    "category": category_map.get(expense.category_id, "Uncategorized")
+                    if expense.category_id
+                    else "Uncategorized",
+                    "description": expense.description or "Expense",
+                }
+                for expense in expenses
+            ],
+            key=lambda row: row["date"],
+            reverse=True,
+        )
+
         return {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -298,6 +379,7 @@ class ReportsService:
             "category_breakdown": category_breakdown,
             "daily_breakdown": daily_breakdown,
             "by_category": {k: str(v) for k, v in by_category.items()},  # Keep for backward compatibility
+            "reference_rows": reference_rows,
         }
 
     @staticmethod
@@ -376,6 +458,8 @@ class ReportsService:
                 "sold_items": [],
                 "sold_items_customer_breakdown": [],
                 "remaining_stock_snapshot": [],
+                "invoice_reference_rows": [],
+                "reference_rows": [],
                 "profit_loss_summary": {
                     "sales_revenue": "0.00",
                     "cogs": "0.00",
@@ -472,6 +556,7 @@ class ReportsService:
         items_payload = []
         movement_entries = []
         sold_item_customer_rollup: dict[str, dict[str, dict]] = defaultdict(dict)
+        invoice_reference_rollup: dict[str, dict] = {}
         movement_summary = {
             "all": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
             "in": {"entries": 0, "qty": Decimal("0.000"), "amount": Decimal("0.00")},
@@ -577,6 +662,48 @@ class ReportsService:
                             current_last_sale = customer_entry["last_sale_at"]
                             if current_last_sale is None or txn.date > current_last_sale:
                                 customer_entry["last_sale_at"] = txn.date
+
+                            invoice_rollup = invoice_reference_rollup.get(invoice_id_str)
+                            if invoice_rollup is None:
+                                invoice_number = (
+                                    invoice.invoice_number
+                                    if invoice is not None
+                                    else f"INV-{invoice_id_str[:8].upper()}"
+                                )
+                                invoice_rollup = {
+                                    "reference_type": "invoice",
+                                    "reference_id": invoice_id_str,
+                                    "invoice_number": invoice_number,
+                                    "invoice_date": (
+                                        invoice.date.isoformat()
+                                        if invoice is not None
+                                        else txn.date.isoformat()
+                                    ),
+                                    "customer_name": customer_name,
+                                    "sold_qty": Decimal("0.000"),
+                                    "sold_amount": Decimal("0.00"),
+                                    "invoice_count": 1,
+                                    "status": (
+                                        "paid"
+                                        if invoice is not None and invoice.invoice_type == InvoiceType.CASH
+                                        else (
+                                            "paid"
+                                            if invoice is not None and invoice.paid_amount >= invoice.total_amount
+                                            else (
+                                                "partially_paid"
+                                                if invoice is not None and invoice.paid_amount > 0
+                                                else "unpaid"
+                                            )
+                                        )
+                                    ),
+                                    "last_sale_at": txn.date,
+                                }
+                                invoice_reference_rollup[invoice_id_str] = invoice_rollup
+
+                            invoice_rollup["sold_qty"] += txn.quantity
+                            invoice_rollup["sold_amount"] += txn.quantity * effective_unit_price
+                            if txn.date > invoice_rollup["last_sale_at"]:
+                                invoice_rollup["last_sale_at"] = txn.date
                 elif txn.transaction_type == InventoryTransactionType.WASTAGE:
                     wastage_qty += txn.quantity
                     movement_direction = "out"
@@ -854,6 +981,25 @@ class ReportsService:
             reverse=True,
         )
 
+        invoice_reference_rows = sorted(
+            [
+                {
+                    "reference_type": row["reference_type"],
+                    "reference_id": row["reference_id"],
+                    "invoice_number": row["invoice_number"],
+                    "invoice_date": row["invoice_date"],
+                    "customer_name": row["customer_name"],
+                    "sold_qty": _decimal_to_string(row["sold_qty"], 3),
+                    "sold_amount": _decimal_to_string(row["sold_amount"], 2),
+                    "status": row["status"],
+                    "last_sale_at": row["last_sale_at"].isoformat(),
+                }
+                for row in invoice_reference_rollup.values()
+            ],
+            key=lambda row: row["invoice_date"],
+            reverse=True,
+        )
+
         gross_profit = total_sold_value - total_cogs
         gross_margin_percent = Decimal("0.00")
         if total_sold_value > 0:
@@ -907,6 +1053,8 @@ class ReportsService:
             "sold_items": sold_items_payload,
             "sold_items_customer_breakdown": sold_items_customer_breakdown,
             "remaining_stock_snapshot": remaining_stock_snapshot,
+            "invoice_reference_rows": invoice_reference_rows,
+            "reference_rows": invoice_reference_rows,
             "profit_loss_summary": profit_loss_summary,
         }
 
@@ -965,6 +1113,15 @@ class ReportsService:
             for category, amount in expense_report["by_category"].items():
                 expense_breakdown[f"category_{category}"] = str(amount)
 
+        reference_rows = []
+        reference_rows.extend(sales_report.get("reference_rows", []))
+        reference_rows.extend(expense_report.get("reference_rows", []))
+        reference_rows = sorted(
+            reference_rows,
+            key=lambda row: row.get("date", row.get("invoice_date", "")),
+            reverse=True,
+        )
+
         return {
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -974,6 +1131,7 @@ class ReportsService:
             "net_profit": str(net_profit),
             "revenue_breakdown": revenue_breakdown,
             "expense_breakdown": expense_breakdown,
+            "reference_rows": reference_rows,
         }
 
 

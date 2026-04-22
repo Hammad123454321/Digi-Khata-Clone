@@ -28,6 +28,17 @@ class SecretsValidator:
             
             if settings.ENCRYPTION_ENABLED and not settings.ENCRYPTION_KEY:
                 missing.append("ENCRYPTION_KEY")
+
+            if not settings.TWILIO_VERIFY_SERVICE_SID:
+                missing.append("TWILIO_VERIFY_SERVICE_SID")
+            if not settings.TWILIO_ACCOUNT_SID:
+                missing.append("TWILIO_ACCOUNT_SID")
+
+            # Twilio credentials: API key pair preferred; fallback to auth token.
+            has_api_key_auth = bool(settings.TWILIO_API_KEY_SID and settings.TWILIO_API_KEY_SECRET)
+            has_auth_token = bool(settings.TWILIO_AUTH_TOKEN)
+            if not has_api_key_auth and not has_auth_token:
+                missing.append("TWILIO_API_KEY_SID/TWILIO_API_KEY_SECRET or TWILIO_AUTH_TOKEN")
             
             if settings.SENTRY_DSN:
                 # Sentry is optional but if enabled, should be configured

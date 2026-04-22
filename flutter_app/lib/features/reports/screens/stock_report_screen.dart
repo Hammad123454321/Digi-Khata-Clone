@@ -240,9 +240,8 @@ class _StockReportScreenState extends State<StockReportScreen> {
         actions: [
           IconButton(
             tooltip: 'Share',
-            onPressed: (_currentReport == null || _isSharing)
-                ? null
-                : _shareReport,
+            onPressed:
+                (_currentReport == null || _isSharing) ? null : _shareReport,
             icon: _isSharing
                 ? const SizedBox(
                     width: 18,
@@ -399,31 +398,7 @@ class _StockReportScreenState extends State<StockReportScreen> {
     final periodSummary = _summaryMap(report['period_summary']);
     final profitLossSummary = _summaryMap(report['profit_loss_summary']);
 
-    final soldItems = _asMapList(report['sold_items']);
-    final soldBreakdownRows =
-        _asMapList(report['sold_items_customer_breakdown']);
-    final remainingSnapshotRaw = _asMapList(report['remaining_stock_snapshot']);
-
-    final customerBreakdownByItem = <String, List<Map<String, dynamic>>>{};
-    for (final row in soldBreakdownRows) {
-      final itemId = row['item_id']?.toString();
-      if (itemId == null || itemId.isEmpty) continue;
-      customerBreakdownByItem[itemId] = _asMapList(row['customers']);
-    }
-
-    final remainingSnapshot = remainingSnapshotRaw.isNotEmpty
-        ? remainingSnapshotRaw
-        : _asMapList(report['items'])
-            .where((item) => _toDouble(item['closing_stock']) > 0)
-            .map(
-              (item) => <String, dynamic>{
-                'item_name': item['name'],
-                'unit': item['unit'],
-                'left_qty': item['closing_stock'],
-                'left_value': item['stock_value'] ?? item['value'],
-              },
-            )
-            .toList();
+    final invoiceRows = _asMapList(report['invoice_reference_rows']);
 
     final stockGoneQty =
         _toDouble(periodSummary['sold_qty'] ?? report['total_sold_qty']);
@@ -523,78 +498,78 @@ class _StockReportScreenState extends State<StockReportScreen> {
           ),
           const SizedBox(height: 20),
           Text(
-            'Stock Gone Items',
+            'Stock Gone (Invoices)',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 8),
-          if (soldItems.isEmpty)
+          if (invoiceRows.isEmpty)
             AppCard(
               child: Text(
-                'No stock sold in selected range.',
+                'No invoice sales in selected range.',
                 style: theme.textTheme.bodyMedium,
               ),
             )
           else
-            ...soldItems.map((item) {
-              final itemId = item['item_id']?.toString() ?? '';
-              final customerRows = customerBreakdownByItem[itemId] ??
-                  _asMapList(item['top_customers']);
-              final topCustomers = _asMapList(item['top_customers']);
-              return InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: customerRows.isEmpty
-                    ? null
-                    : () => _openCustomerBreakdownSheet(
-                          theme: theme,
-                          item: item,
-                          customers: customerRows,
-                        ),
-                child: AppCard(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item['item_name']?.toString() ?? loc.unknown,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            CurrencyUtils.formatCurrency(
-                              _toDouble(item['sold_amount']),
-                            ),
+            ...invoiceRows.map((invoiceRow) {
+              final invoiceNumber =
+                  invoiceRow['invoice_number']?.toString() ?? 'Invoice';
+              final customerName =
+                  invoiceRow['customer_name']?.toString() ?? 'Unknown Customer';
+              final soldQty = _toDouble(invoiceRow['sold_qty']);
+              final soldAmount = _toDouble(invoiceRow['sold_amount']);
+              final status =
+                  invoiceRow['status']?.toString().replaceAll('_', ' ') ?? '-';
+              final invoiceDate = invoiceRow['invoice_date']?.toString() ?? '';
+              return AppCard(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            invoiceNumber,
                             style: theme.textTheme.titleSmall?.copyWith(
-                              color: Colors.green,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                        ],
+                        ),
+                        Text(
+                          CurrencyUtils.formatCurrency(soldAmount),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: Colors.green,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      customerName,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
-                      const SizedBox(height: 6),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Qty: ${soldQty.toStringAsFixed(2)}  •  ${status.toUpperCase()}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (invoiceDate.isNotEmpty) ...[
+                      const SizedBox(height: 4),
                       Text(
-                        'Gone: ${_toDouble(item['sold_qty']).toStringAsFixed(2)} ${item['unit'] ?? ''}   Left: ${_toDouble(item['left_qty']).toStringAsFixed(2)} ${item['unit'] ?? ''}',
+                        invoiceDate,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      if (topCustomers.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Top customer: ${topCustomers.first['customer_name'] ?? 'Unknown Customer'}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
+                  ],
                 ),
               );
             }),
@@ -606,123 +581,27 @@ class _StockReportScreenState extends State<StockReportScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          if (remainingSnapshot.isEmpty)
-            AppCard(
-              child: Text(
-                'No remaining stock in selected range.',
-                style: theme.textTheme.bodyMedium,
-              ),
-            )
-          else
-            ...remainingSnapshot.take(10).map((item) {
-              return AppCard(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        item['item_name']?.toString() ?? loc.unknown,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '${_toDouble(item['left_qty']).toStringAsFixed(2)} ${item['unit'] ?? ''}',
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      CurrencyUtils.formatCurrency(
-                        _toDouble(item['left_value']),
-                      ),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+          AppCard(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Left Qty: ${stockLeftQty.toStringAsFixed(2)}',
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 ),
-              );
-            }),
-        ],
-      ),
-    );
-  }
-
-  void _openCustomerBreakdownSheet({
-    required ThemeData theme,
-    required Map<String, dynamic> item,
-    required List<Map<String, dynamic>> customers,
-  }) {
-    final loc = AppLocalizations.of(context)!;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          top: false,
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.62,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item['item_name']?.toString() ?? loc.unknown,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                Text(
+                  CurrencyUtils.formatCurrency(stockLeftValue),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Sold ${_toDouble(item['sold_qty']).toStringAsFixed(2)} ${item['unit'] ?? ''}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: customers.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final customer = customers[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            customer['customer_name']?.toString() ??
-                                'Unknown Customer',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          subtitle: Text(
-                            'Qty: ${_toDouble(customer['qty']).toStringAsFixed(2)}   Invoices: ${_toInt(customer['invoice_count'])}',
-                          ),
-                          trailing: Text(
-                            CurrencyUtils.formatCurrency(
-                              _toDouble(customer['amount']),
-                            ),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

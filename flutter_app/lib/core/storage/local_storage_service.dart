@@ -58,6 +58,29 @@ class LocalStorageService {
     return _prefs.getString(StorageConstants.businessName);
   }
 
+  Future<void> saveBusinessPermissions(
+    String businessId,
+    Map<String, dynamic> permissions,
+  ) async {
+    final key = '${StorageConstants.businessPermissionsPrefix}_$businessId';
+    await _prefs.setString(key, jsonEncode(permissions));
+  }
+
+  Map<String, dynamic>? getBusinessPermissions(String businessId) {
+    final key = '${StorageConstants.businessPermissionsPrefix}_$businessId';
+    final raw = _prefs.getString(key);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   // Devices cache
   Future<void> saveCachedDevices(List<Map<String, dynamic>> devices) async {
     final encoded = jsonEncode(devices);
@@ -169,8 +192,12 @@ class LocalStorageService {
     }
 
     final scopedLastSyncPrefix = '${StorageConstants.lastSyncAtScopedPrefix}_';
+    final permissionsPrefix = '${StorageConstants.businessPermissionsPrefix}_';
     for (final key in _prefs.getKeys()) {
       if (key.startsWith(scopedLastSyncPrefix)) {
+        await _prefs.remove(key);
+      }
+      if (key.startsWith(permissionsPrefix)) {
         await _prefs.remove(key);
       }
     }

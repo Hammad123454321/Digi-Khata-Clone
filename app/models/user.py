@@ -1,9 +1,10 @@
 """User models."""
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Dict
 import enum
 from pydantic import Field
 from beanie import Indexed, PydanticObjectId
+from pymongo import IndexModel
 
 from app.models.base import BaseModel
 from app.core.security import encrypt_data, decrypt_data
@@ -15,6 +16,22 @@ class UserRoleEnum(str, enum.Enum):
     OWNER = "owner"
     MANAGER = "manager"
     STAFF = "staff"
+
+
+class RoleActionEnum(str, enum.Enum):
+    """Permission action level."""
+
+    VIEW = "view"
+    EDIT = "edit"
+    MANAGE = "manage"
+
+
+class TeamInviteStatus(str, enum.Enum):
+    """Team invite status."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
 
 
 class User(BaseModel):
@@ -57,6 +74,8 @@ class UserMembership(BaseModel):
     user_id: Indexed(PydanticObjectId, )
     business_id: Indexed(PydanticObjectId, )
     role: UserRoleEnum = Field(default=UserRoleEnum.STAFF)
+    custom_role_id: Optional[PydanticObjectId] = None
+    invited_by_user_id: Optional[PydanticObjectId] = None
     is_active: bool = Field(default=True)
 
     class Settings:
@@ -68,14 +87,59 @@ class UserMembership(BaseModel):
         ]
 
 
+class BusinessRole(BaseModel):
+    """Business-scoped custom role with per-resource action level."""
+
+    business_id: Indexed(PydanticObjectId, )
+    name: str
+    normalized_name: str
+    permissions: Dict[str, RoleActionEnum] = Field(default_factory=dict)
+    is_system: bool = Field(default=False)
+    is_active: bool = Field(default=True)
+    created_by_user_id: Optional[PydanticObjectId] = None
+
+    class Settings:
+        name = "business_roles"
+        indexes = [
+            [("business_id", 1)],
+            IndexModel([("business_id", 1), ("normalized_name", 1)], unique=True),
+            [("business_id", 1), ("is_active", 1)],
+        ]
+
+
+class TeamInvite(BaseModel):
+    """Pending team-user invite mapped by normalized phone number."""
+
+    business_id: Indexed(PydanticObjectId, )
+    phone: Indexed(str, )
+    name: str
+    role_id: PydanticObjectId
+    status: TeamInviteStatus = Field(default=TeamInviteStatus.PENDING)
+    created_by_user_id: Optional[PydanticObjectId] = None
+    accepted_user_id: Optional[PydanticObjectId] = None
+    accepted_at: Optional[datetime] = None
+    is_active: bool = Field(default=True)
+
+    class Settings:
+        name = "team_invites"
+        indexes = [
+            [("business_id", 1)],
+            [("phone", 1)],
+            [("business_id", 1), ("status", 1)],
+            IndexModel(
+                [("business_id", 1), ("phone", 1)],
+                unique=True,
+                partialFilterExpression={"status": "pending", "is_active": True},
+            ),
+        ]
+
+
 class UserRole(BaseModel):
-    """User role permissions (for future RBAC)."""
+    """Legacy membership permission model (kept for compatibility)."""
 
     membership_id: PydanticObjectId
-    permission: str  # e.g., "cash.view", "stock.edit"
+    permission: str
 
     class Settings:
         name = "user_roles"
-        indexes = [
-            [("membership_id", 1), ("permission", 1)],  # Unique constraint
-        ]
+        indexes = [[("membership_id", 1), ("permission", 1)]]

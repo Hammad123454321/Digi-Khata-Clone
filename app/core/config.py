@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     OTP_MAX_ATTEMPTS: int = Field(default=5)
     OTP_BYPASS_ENABLED: bool = Field(default=False)
     OTP_BYPASS_CODE: str = Field(default="000000", min_length=4, max_length=10)
+    OTP_DEFAULT_REGION: str = Field(default="SA")
+
+    # Twilio Verify (production OTP)
+    TWILIO_ACCOUNT_SID: str = Field(default="")
+    TWILIO_AUTH_TOKEN: str = Field(default="")
+    TWILIO_API_KEY_SID: str = Field(default="")
+    TWILIO_API_KEY_SECRET: str = Field(default="")
+    TWILIO_VERIFY_SERVICE_SID: str = Field(default="")
+    TWILIO_VERIFY_PRIMARY_CHANNEL: str = Field(default="whatsapp")
+    TWILIO_VERIFY_FALLBACK_CHANNEL: str = Field(default="sms")
 
     # Backup Settings
     BACKUP_ENABLED: bool = Field(default=True)

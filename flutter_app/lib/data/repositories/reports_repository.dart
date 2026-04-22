@@ -28,6 +28,8 @@ class ReportsRepository {
         queryParameters: {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
+          'start_datetime': startDate.toIso8601String(),
+          'end_datetime': endDate.toIso8601String(),
         },
       );
 
@@ -52,6 +54,8 @@ class ReportsRepository {
         queryParameters: {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
+          'start_datetime': startDate.toIso8601String(),
+          'end_datetime': endDate.toIso8601String(),
         },
       );
 
@@ -76,6 +80,8 @@ class ReportsRepository {
         queryParameters: {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
+          'start_datetime': startDate.toIso8601String(),
+          'end_datetime': endDate.toIso8601String(),
         },
       );
 
@@ -100,6 +106,8 @@ class ReportsRepository {
         queryParameters: {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
+          'start_datetime': startDate.toIso8601String(),
+          'end_datetime': endDate.toIso8601String(),
         },
       );
 
@@ -124,6 +132,8 @@ class ReportsRepository {
         queryParameters: {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
+          'start_datetime': startDate.toIso8601String(),
+          'end_datetime': endDate.toIso8601String(),
         },
       );
 
@@ -151,6 +161,17 @@ class ReportsRepository {
       endDate: rangeEnd,
       limit: 1000000,
     );
+    final customers = await _appDatabase.fetchCustomers(limit: 1000000);
+    final customerNameById = <String, String>{};
+    for (final customer in customers) {
+      if (customer.serverId != null && customer.serverId!.trim().isNotEmpty) {
+        customerNameById[customer.serverId!] = customer.name;
+      }
+      if (customer.clientId != null && customer.clientId!.trim().isNotEmpty) {
+        customerNameById[customer.clientId!] = customer.name;
+      }
+      customerNameById[customer.id.toString()] = customer.name;
+    }
 
     double totalSales = 0;
     double cashSales = 0;
@@ -178,6 +199,29 @@ class ReportsRepository {
       _addSalesBucket(monthly, monthKey, invoice.invoiceType, amount);
     }
 
+    final invoiceReferenceRows = invoices
+        .map(
+          (invoice) => <String, dynamic>{
+            'reference_type': 'invoice',
+            'reference_id': invoice.serverId,
+            'invoice_number': invoice.invoiceNumber,
+            'invoice_date': invoice.date.toIso8601String(),
+            'customer_name': customerNameById[invoice.customerId ?? ''] ??
+                'Unknown Customer',
+            'invoice_type': invoice.invoiceType,
+            'invoice_total': invoice.totalAmount,
+            'invoice_status': invoice.invoiceType == 'cash'
+                ? 'paid'
+                : (_parseAmount(invoice.paidAmount) >=
+                        _parseAmount(invoice.totalAmount)
+                    ? 'paid'
+                    : (_parseAmount(invoice.paidAmount) > 0
+                        ? 'partially_paid'
+                        : 'unpaid')),
+          },
+        )
+        .toList(growable: false);
+
     return {
       'total_sales': totalSales.toStringAsFixed(2),
       'cash_sales': cashSales.toStringAsFixed(2),
@@ -186,6 +230,8 @@ class ReportsRepository {
       'daily_breakdown': _buildSalesBreakdown(daily, period: 'day'),
       'weekly_breakdown': _buildSalesBreakdown(weekly, period: 'week'),
       'monthly_breakdown': _buildSalesBreakdown(monthly, period: 'month'),
+      'invoice_reference_rows': invoiceReferenceRows,
+      'reference_rows': invoiceReferenceRows,
       'is_offline': true,
     };
   }
@@ -230,6 +276,7 @@ class ReportsRepository {
       'total_inflow': totals.totalIn.toStringAsFixed(2),
       'total_outflow': totals.totalOut.toStringAsFixed(2),
       'transactions': txns,
+      'reference_rows': txns,
       'is_offline': true,
     };
   }
@@ -302,6 +349,17 @@ class ReportsRepository {
       'total_count': expenses.length,
       'category_breakdown': categoryBreakdown,
       'daily_breakdown': dailyBreakdown,
+      'reference_rows': expenses
+          .map((expense) => <String, dynamic>{
+                'reference_type': 'expense',
+                'reference_id': expense.serverId,
+                'date': expense.date.toIso8601String(),
+                'amount': expense.amount,
+                'payment_mode': expense.paymentMode,
+                'category': categoryMap[expense.categoryId] ?? 'Uncategorized',
+                'description': expense.description ?? 'Expense',
+              })
+          .toList(growable: false),
       'is_offline': true,
     };
   }
@@ -385,12 +443,15 @@ class ReportsRepository {
     final soldByItem = <String, _LocalSoldAggregate>{};
     final soldCustomerBreakdownByItem =
         <String, Map<String, _LocalCustomerAggregate>>{};
+    final invoiceReferenceRows = <Map<String, dynamic>>[];
     var soldEntriesCount = 0;
     for (final invoice in invoices) {
       final invoiceId = invoice.serverId;
       if (invoiceId.trim().isEmpty) continue;
       final customerName = resolveCustomerName(invoice.customerId);
       final invoiceItems = await _appDatabase.fetchInvoiceItems(invoiceId);
+      var invoiceSoldQty = 0.0;
+      var invoiceSoldAmount = 0.0;
       for (final invoiceItem in invoiceItems) {
         final rawItemId = invoiceItem.itemId;
         if (rawItemId == null || rawItemId.trim().isEmpty) continue;
@@ -403,6 +464,8 @@ class ReportsRepository {
         final soldQty = _parseAmount(invoiceItem.quantity);
         final soldAmount = _parseAmount(invoiceItem.totalPrice);
         if (soldQty <= 0) continue;
+        invoiceSoldQty += soldQty;
+        invoiceSoldAmount += soldAmount;
 
         soldEntriesCount += 1;
         final soldAggregate =
@@ -430,6 +493,27 @@ class ReportsRepository {
             invoice.date.isAfter(customerAggregate.lastSaleAt!)) {
           customerAggregate.lastSaleAt = invoice.date;
         }
+      }
+
+      if (invoiceSoldQty > 0) {
+        final totalAmount = _parseAmount(invoice.totalAmount);
+        final paidAmount = _parseAmount(invoice.paidAmount);
+        final status = invoice.invoiceType == 'cash'
+            ? 'paid'
+            : (paidAmount >= totalAmount
+                ? 'paid'
+                : (paidAmount > 0 ? 'partially_paid' : 'unpaid'));
+        invoiceReferenceRows.add({
+          'reference_type': 'invoice',
+          'reference_id': invoiceId,
+          'invoice_number': invoice.invoiceNumber,
+          'invoice_date': invoice.date.toIso8601String(),
+          'customer_name': customerName,
+          'sold_qty': invoiceSoldQty.toStringAsFixed(3),
+          'sold_amount': invoiceSoldAmount.toStringAsFixed(2),
+          'status': status,
+          'last_sale_at': invoice.date.toIso8601String(),
+        });
       }
     }
 
@@ -780,6 +864,8 @@ class ReportsRepository {
       'sold_items': soldItemsPayload,
       'sold_items_customer_breakdown': soldItemsCustomerBreakdown,
       'remaining_stock_snapshot': remainingStockSnapshot,
+      'invoice_reference_rows': invoiceReferenceRows,
+      'reference_rows': invoiceReferenceRows,
       'profit_loss_summary': profitLossSummary,
       'is_offline': true,
     };
@@ -832,6 +918,21 @@ class ReportsRepository {
       'expense_breakdown': expenseBreakdown.map(
         (key, value) => MapEntry(key, value.toStringAsFixed(2)),
       ),
+      'reference_rows': [
+        ...invoices.map((invoice) => <String, dynamic>{
+              'reference_type': 'invoice',
+              'reference_id': invoice.serverId,
+              'invoice_number': invoice.invoiceNumber,
+              'invoice_date': invoice.date.toIso8601String(),
+              'invoice_total': invoice.totalAmount,
+            }),
+        ...expenses.map((expense) => <String, dynamic>{
+              'reference_type': 'expense',
+              'reference_id': expense.serverId,
+              'date': expense.date.toIso8601String(),
+              'amount': expense.amount,
+            }),
+      ],
       'is_offline': true,
     };
   }

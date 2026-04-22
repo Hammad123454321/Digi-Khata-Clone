@@ -3,6 +3,8 @@ from typing import Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.business import BusinessTypeEnum
+from app.core.phone import normalize_phone_number
+from app.core.exceptions import ValidationError
 
 
 class BusinessCreate(BaseModel):
@@ -20,6 +22,16 @@ class BusinessCreate(BaseModel):
     max_devices: int = Field(default=3, ge=1, le=10)
     business_type: BusinessTypeEnum = Field(default=BusinessTypeEnum.OTHER)
     custom_business_type: Optional[str] = None  # Required if business_type is OTHER
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_phone(cls, data):
+        if isinstance(data, dict) and data.get("phone"):
+            try:
+                data["phone"] = normalize_phone_number(data["phone"])
+            except ValidationError as exc:
+                raise ValueError("Invalid phone number format") from exc
+        return data
 
     @model_validator(mode="after")
     def validate_custom_business_type(self):

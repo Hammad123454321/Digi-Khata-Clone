@@ -1,12 +1,18 @@
 """Stock management endpoints."""
 from typing import List, Optional
+from decimal import Decimal
 from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import get_current_user, get_current_business
+from app.api.dependencies import (
+    get_current_user,
+    get_current_business,
+    require_permission,
+)
 from app.models.user import User
 from app.models.business import Business
 from app.models.item import Item
 from beanie.operators import In
+from app.core.permissions import can_access
 from app.schemas.stock import (
     ItemCreate,
     ItemUpdate,
@@ -20,10 +26,25 @@ from app.services.stock import stock_service
 router = APIRouter(prefix="/stock", tags=["Stock Management"])
 
 
+def _to_item_response(item: Item, *, can_view_purchase_price: bool) -> ItemResponse:
+    return ItemResponse(
+        id=str(item.id),
+        name=item.name,
+        purchase_price=item.purchase_price if can_view_purchase_price else Decimal("0.00"),
+        sale_price=item.sale_price,
+        unit=item.unit.value,
+        opening_stock=item.opening_stock,
+        current_stock=item.current_stock,
+        is_active=item.is_active,
+        description=item.description,
+    )
+
+
 @router.post("/items", response_model=ItemResponse, status_code=201)
 async def create_item(
     data: ItemCreate,
     current_business: Business = Depends(get_current_business),
+    permissions: dict = Depends(require_permission("stock", "edit")),
 ):
     """Create a new item."""
     item = await stock_service.create_item(
@@ -36,16 +57,11 @@ async def create_item(
         description=data.description,
     )
     # Convert ObjectId to string for response
-    return ItemResponse(
-        id=str(item.id),
-        name=item.name,
-        purchase_price=item.purchase_price,
-        sale_price=item.sale_price,
-        unit=item.unit.value,
-        opening_stock=item.opening_stock,
-        current_stock=item.current_stock,
-        is_active=item.is_active,
-        description=item.description,
+    return _to_item_response(
+        item,
+        can_view_purchase_price=can_access(
+            permissions, resource="purchase_price", action="view"
+        ),
     )
 
 
@@ -56,6 +72,7 @@ async def list_items(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     current_business: Business = Depends(get_current_business),
+    permissions: dict = Depends(require_permission("stock", "view")),
 ):
     """List items."""
     items = await stock_service.list_items(
@@ -66,18 +83,13 @@ async def list_items(
         offset=offset,
     )
     # Convert ObjectIds to strings for response
+    can_view_purchase_price = can_access(
+        permissions,
+        resource="purchase_price",
+        action="view",
+    )
     return [
-        ItemResponse(
-            id=str(item.id),
-            name=item.name,
-            purchase_price=item.purchase_price,
-            sale_price=item.sale_price,
-            unit=item.unit.value,
-            opening_stock=item.opening_stock,
-            current_stock=item.current_stock,
-            is_active=item.is_active,
-            description=item.description,
-        )
+        _to_item_response(item, can_view_purchase_price=can_view_purchase_price)
         for item in items
     ]
 
@@ -86,20 +98,16 @@ async def list_items(
 async def get_item(
     item_id: str,
     current_business: Business = Depends(get_current_business),
+    permissions: dict = Depends(require_permission("stock", "view")),
 ):
     """Get item details."""
     item = await stock_service.get_item(item_id, str(current_business.id))
     # Convert ObjectId to string for response
-    return ItemResponse(
-        id=str(item.id),
-        name=item.name,
-        purchase_price=item.purchase_price,
-        sale_price=item.sale_price,
-        unit=item.unit.value,
-        opening_stock=item.opening_stock,
-        current_stock=item.current_stock,
-        is_active=item.is_active,
-        description=item.description,
+    return _to_item_response(
+        item,
+        can_view_purchase_price=can_access(
+            permissions, resource="purchase_price", action="view"
+        ),
     )
 
 
@@ -108,6 +116,7 @@ async def update_item(
     item_id: str,
     data: ItemUpdate,
     current_business: Business = Depends(get_current_business),
+    permissions: dict = Depends(require_permission("stock", "edit")),
 ):
     """Update an item."""
     item = await stock_service.update_item(
@@ -121,16 +130,11 @@ async def update_item(
         is_active=data.is_active,
     )
     # Convert ObjectId to string for response
-    return ItemResponse(
-        id=str(item.id),
-        name=item.name,
-        purchase_price=item.purchase_price,
-        sale_price=item.sale_price,
-        unit=item.unit.value,
-        opening_stock=item.opening_stock,
-        current_stock=item.current_stock,
-        is_active=item.is_active,
-        description=item.description,
+    return _to_item_response(
+        item,
+        can_view_purchase_price=can_access(
+            permissions, resource="purchase_price", action="view"
+        ),
     )
 
 
@@ -139,6 +143,7 @@ async def create_inventory_transaction(
     data: InventoryTransactionCreate,
     current_business: Business = Depends(get_current_business),
     current_user: User = Depends(get_current_user),
+    _: dict = Depends(require_permission("stock", "edit")),
 ):
     """Create an inventory transaction."""
     transaction = await stock_service.create_inventory_transaction(
@@ -172,6 +177,7 @@ async def create_inventory_transaction(
 async def list_low_stock_alerts(
     is_resolved: Optional[bool] = Query(None),
     current_business: Business = Depends(get_current_business),
+    _: dict = Depends(require_permission("stock", "view")),
 ):
     """List low stock alerts."""
     alerts = await stock_service.list_low_stock_alerts(
@@ -202,6 +208,7 @@ async def list_low_stock_alerts(
 async def resolve_low_stock_alert(
     alert_id: str,
     current_business: Business = Depends(get_current_business),
+    _: dict = Depends(require_permission("stock", "edit")),
 ):
     """Resolve a low stock alert."""
     await stock_service.resolve_low_stock_alert(alert_id, str(current_business.id))

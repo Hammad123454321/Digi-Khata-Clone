@@ -56,7 +56,10 @@ class ReportExporter {
       final logo = await _loadLogo();
 
       final scalarRows = _extractScalarRows(report);
-      final listSections = _extractListSections(report);
+      final referenceRows = _listOfMaps(report['reference_rows']);
+      final listSections = referenceRows.isNotEmpty
+          ? [('reference_rows', referenceRows)]
+          : _extractListSections(report);
 
       final tableModel = _buildTableModel(
         loc: loc,
@@ -173,9 +176,7 @@ class ReportExporter {
 
     final periodSummary = _mapFromDynamic(report['period_summary']);
     final profitLossSummary = _mapFromDynamic(report['profit_loss_summary']);
-    final soldItems = _listOfMaps(report['sold_items']);
-    final customerBreakdown =
-        _listOfMaps(report['sold_items_customer_breakdown']);
+    final invoiceRows = _listOfMaps(report['invoice_reference_rows']);
 
     final kpiRows = <List<String>>[
       [
@@ -198,39 +199,59 @@ class ReportExporter {
       ],
     ];
 
-    final soldItemsRows = soldItems
+    final soldItemsRows = invoiceRows
         .asMap()
         .entries
         .map(
           (entry) => <String>[
             '${entry.key + 1}',
-            _stringifyCell(entry.value['item_name']),
+            _stringifyCell(entry.value['invoice_number']),
+            _stringifyCell(entry.value['customer_name']),
             _stringifyCell(entry.value['sold_qty']),
-            _stringifyCell(entry.value['unit']),
             _stringifyCell(entry.value['sold_amount']),
-            _stringifyCell(entry.value['left_qty']),
-            _stringifyCell(entry.value['left_value']),
-            _stringifyCell(entry.value['gross_profit']),
+            _stringifyCell(entry.value['status']),
+            _stringifyCell(entry.value['invoice_date']),
           ],
         )
         .toList(growable: false);
 
-    final customerRows = <List<String>>[];
-    for (final item in customerBreakdown) {
-      final itemName = _stringifyCell(item['item_name']);
-      final customers = _listOfMaps(item['customers']);
-      for (final customer in customers) {
-        customerRows.add([
-          '${customerRows.length + 1}',
-          itemName,
-          _stringifyCell(customer['customer_name']),
-          _stringifyCell(customer['qty']),
-          _stringifyCell(customer['amount']),
-          _stringifyCell(customer['invoice_count']),
-          _stringifyCell(customer['last_sale_at']),
-        ]);
-      }
+    final customerRollup = <String, Map<String, dynamic>>{};
+    for (final row in invoiceRows) {
+      final customer = _stringifyCell(row['customer_name']);
+      final entry = customerRollup.putIfAbsent(customer, () {
+        return {
+          'customer_name': customer,
+          'qty': 0.0,
+          'amount': 0.0,
+          'invoice_count': 0,
+          'last_sale_at': row['last_sale_at'] ?? row['invoice_date'],
+        };
+      });
+      entry['qty'] = (entry['qty'] as double) +
+          (double.tryParse(_stringifyCell(row['sold_qty'])) ?? 0);
+      entry['amount'] = (entry['amount'] as double) +
+          (double.tryParse(_stringifyCell(row['sold_amount'])) ?? 0);
+      entry['invoice_count'] = (entry['invoice_count'] as int) + 1;
+      entry['last_sale_at'] = row['last_sale_at'] ?? row['invoice_date'];
     }
+    final customerRows = customerRollup.values.toList()
+      ..sort(
+          (a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
+    final customerRowsPayload = customerRows
+        .asMap()
+        .entries
+        .map(
+          (entry) => <String>[
+            '${entry.key + 1}',
+            _stringifyCell(entry.value['customer_name']),
+            _stringifyCell((entry.value['qty'] as double).toStringAsFixed(3)),
+            _stringifyCell(
+                (entry.value['amount'] as double).toStringAsFixed(2)),
+            _stringifyCell(entry.value['invoice_count']),
+            _stringifyCell(entry.value['last_sale_at']),
+          ],
+        )
+        .toList(growable: false);
 
     final profitRows = <List<String>>[
       ['Sales Revenue', _stringifyCell(profitLossSummary['sales_revenue'])],
@@ -271,7 +292,7 @@ class ReportExporter {
                   (
                     loc.entries,
                     _stringifyCell(
-                      periodSummary['sold_entries'] ?? soldItems.length,
+                      periodSummary['sold_entries'] ?? invoiceRows.length,
                     ),
                   ),
                   (loc.date, DateFormat('dd/MM/yyyy').format(generatedAt)),
@@ -288,7 +309,7 @@ class ReportExporter {
           ),
           pw.SizedBox(height: 12),
           pw.Text(
-            'Sold Items',
+            'Invoice-wise Stock Gone',
             style: pw.TextStyle(
               fontSize: 10,
               fontWeight: pw.FontWeight.bold,
@@ -298,21 +319,18 @@ class ReportExporter {
           _buildSimpleTable(
             headers: const [
               '#',
-              'Item',
+              'Invoice',
+              'Customer',
               'Sold Qty',
-              'Unit',
               'Sales',
-              'Left Qty',
-              'Left Value',
-              'Gross Profit',
+              'Status',
+              'Date',
             ],
             rows: soldItemsRows.isEmpty
                 ? const [
                     [
                       '-',
-                      'No sold items in selected range',
-                      '-',
-                      '-',
+                      'No invoice sales in selected range',
                       '-',
                       '-',
                       '-',
@@ -333,26 +351,24 @@ class ReportExporter {
           _buildSimpleTable(
             headers: const [
               '#',
-              'Item',
               'Customer',
               'Qty',
               'Amount',
               'Invoices',
               'Last Sale',
             ],
-            rows: customerRows.isEmpty
+            rows: customerRowsPayload.isEmpty
                 ? const [
                     [
                       '-',
-                      'No customer-wise sales in selected range',
-                      '-',
+                      'No customer sales in selected range',
                       '-',
                       '-',
                       '-',
                       '-',
                     ],
                   ]
-                : customerRows,
+                : customerRowsPayload,
           ),
           pw.SizedBox(height: 12),
           pw.Text(

@@ -1,6 +1,6 @@
 """Database models."""
 from app.models.business import Business
-from app.models.user import User, UserMembership, UserRole
+from app.models.user import User, UserMembership, UserRole, BusinessRole, TeamInvite
 from app.models.device import Device
 from app.models.cash import CashTransaction, CashBalance
 from app.models.item import Item, InventoryTransaction, LowStockAlert
@@ -21,6 +21,8 @@ __all__ = [
     User,
     UserMembership,
     UserRole,
+    BusinessRole,
+    TeamInvite,
     Device,
     CashTransaction,
     CashBalance,
