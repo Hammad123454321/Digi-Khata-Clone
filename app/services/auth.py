@@ -1,6 +1,7 @@
 """Authentication service."""
 import json
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
@@ -66,6 +67,47 @@ class AuthService:
             # Backward compatibility in case a plain token string was stored.
             return {"refresh_token": raw_payload}
         return {}
+
+    @staticmethod
+    def _build_phone_lookup_candidates(raw_phone: str, normalized_phone: str) -> set[str]:
+        """Build backward-compatible lookup candidates for legacy stored phones."""
+        candidates: set[str] = set()
+
+        def _add(value: Optional[str]) -> None:
+            if not value:
+                return
+            trimmed = value.strip()
+            if trimmed:
+                candidates.add(trimmed)
+
+        _add(normalized_phone)
+
+        raw = (raw_phone or "").strip()
+        compact = re.sub(r"[\s\-\(\)]", "", raw)
+        _add(raw)
+        _add(compact)
+
+        if compact.startswith("00"):
+            _add(f"+{compact[2:]}")
+        if compact.startswith("+"):
+            _add(compact[1:])
+        digits_only = re.sub(r"\D", "", compact)
+        _add(digits_only)
+        _add(digits_only.lstrip("0"))
+
+        normalized_digits = normalized_phone[1:] if normalized_phone.startswith("+") else normalized_phone
+        normalized_digits = re.sub(r"\D", "", normalized_digits)
+        _add(normalized_digits)
+        _add(normalized_digits.lstrip("0"))
+
+        # Common South-Asia legacy storage variants.
+        # Example: +92312xxxxxxx <-> 0312xxxxxxx <-> 312xxxxxxx
+        if normalized_digits.startswith("92") and len(normalized_digits) >= 12:
+            national = normalized_digits[2:]
+            _add(national)
+            _add(f"0{national}")
+
+        return candidates
 
     @staticmethod
     async def _get_active_user(user_id: str) -> Optional[User]:
@@ -158,15 +200,37 @@ class AuthService:
             await twilio_verify_service.check_verification(phone, otp)
 
         # Get or create user (with backward-compatible lookup for legacy stored phone formats).
-        lookup_candidates = {phone}
-        legacy_phone = raw_phone.strip().replace(" ", "").replace("-", "")
-        if legacy_phone:
-            lookup_candidates.add(legacy_phone)
-            lookup_candidates.add(legacy_phone.lstrip("0"))
+        lookup_candidates = AuthService._build_phone_lookup_candidates(raw_phone, phone)
+        matched_users = await User.find(In(User.phone, list(lookup_candidates))).to_list()
 
-        user = await User.find_one(In(User.phone, list(lookup_candidates)))
-        if user and user.phone != phone:
-            user.phone = phone
+        user: Optional[User] = None
+        if matched_users:
+            if len(matched_users) == 1:
+                user = matched_users[0]
+            else:
+                user_ids = [matched.id for matched in matched_users]
+                memberships = await UserMembership.find(
+                    In(UserMembership.user_id, user_ids),
+                    UserMembership.is_active == True,
+                ).to_list()
+                membership_counts: dict[str, int] = {}
+                for membership in memberships:
+                    key = str(membership.user_id)
+                    membership_counts[key] = membership_counts.get(key, 0) + 1
+
+                matched_users.sort(
+                    key=lambda matched: (
+                        membership_counts.get(str(matched.id), 0),
+                        1 if matched.phone == phone else 0,
+                        matched.last_login_at or datetime.min.replace(tzinfo=timezone.utc),
+                    ),
+                    reverse=True,
+                )
+                user = matched_users[0]
+
+            # Normalize stored phone if there is no conflicting normalized record.
+            if user.phone != phone and not any(m.phone == phone for m in matched_users):
+                user.phone = phone
 
         if not user:
             # Create new user
