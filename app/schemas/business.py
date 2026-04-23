@@ -1,5 +1,5 @@
 """Business schemas."""
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.business import BusinessTypeEnum
@@ -72,6 +72,10 @@ class BusinessResponse(BaseModel):
     max_devices: int
     business_type: BusinessTypeEnum
     custom_business_type: Optional[str] = None
+    legacy_role: Optional[str] = None
+    role_id: Optional[str] = None
+    role_name: Optional[str] = None
+    permissions: Optional[Dict[str, str]] = None
 
     class Config:
         from_attributes = True

@@ -27,6 +27,7 @@ import '../../data/repositories/reports_repository.dart';
 import '../../data/repositories/staff_repository.dart';
 import '../../data/repositories/stock_repository.dart';
 import '../../data/repositories/supplier_repository.dart';
+import '../../data/repositories/team_repository.dart';
 
 final getIt = GetIt.instance;
 
@@ -158,6 +159,12 @@ Future<void> setupDependencyInjection() async {
       apiClient: getIt<ApiClient>(),
       appDatabase: getIt<AppDatabase>(),
       syncQueue: getIt<SyncQueue>(),
+    ),
+  );
+
+  getIt.registerSingleton<TeamRepository>(
+    TeamRepository(
+      apiClient: getIt<ApiClient>(),
     ),
   );
 

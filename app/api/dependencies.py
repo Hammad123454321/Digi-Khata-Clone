@@ -1,7 +1,7 @@
 """API dependencies."""
 from typing import Optional, Dict
 
-from fastapi import Depends, HTTPException, Header
+from fastapi import Depends, HTTPException, Header, Request
 from beanie import PydanticObjectId
 
 from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
@@ -16,6 +16,37 @@ from app.core.logging import get_logger
 from app.core.security import verify_token
 
 logger = get_logger(__name__)
+
+_VIEW_METHODS = {"GET", "HEAD", "OPTIONS"}
+_ROUTE_RESOURCE_MAP = {
+    "customers": "customers",
+    "suppliers": "suppliers",
+    "invoices": "invoices",
+    "stock": "stock",
+    "cash": "cash",
+    "expenses": "expenses",
+    "reports": "reports",
+    "banks": "cash",
+    "roles": "team",
+    "team": "team",
+    "staff": "team",
+    "devices": "team",
+}
+
+
+def _resolve_route_segment(path: str) -> Optional[str]:
+    """Resolve first route segment for /api/v1/* path."""
+    parts = [part for part in path.split("/") if part]
+    if len(parts) >= 3 and parts[0] == "api" and parts[1] == "v1":
+        return parts[2].lower()
+    if parts:
+        return parts[0].lower()
+    return None
+
+
+def _resolve_required_action(method: str) -> str:
+    """Map HTTP method to required action level."""
+    return "view" if method.upper() in _VIEW_METHODS else "edit"
 
 
 async def get_current_user(
@@ -89,6 +120,7 @@ async def get_current_membership(
 
 
 async def get_current_business(
+    request: Request,
     current_user: User = Depends(get_current_user),
     membership: UserMembership = Depends(get_current_membership),
 ) -> Business:
@@ -97,6 +129,15 @@ async def get_current_business(
     business = await Business.get(membership.business_id)
     if not business or not business.is_active:
         raise NotFoundError(translate("business_not_found_or_inactive", language))
+
+    segment = _resolve_route_segment(request.url.path)
+    resource = _ROUTE_RESOURCE_MAP.get(segment or "")
+    if resource:
+        permissions = await rbac_service.get_effective_permissions(membership)
+        request.state.current_permissions = permissions
+        required_action = _resolve_required_action(request.method)
+        if not can_access(permissions, resource=resource, action=required_action):
+            raise AuthorizationError(translate("access_denied", language))
 
     return business
 
@@ -153,10 +194,16 @@ def require_role(required_role: str):
 
 
 async def get_current_permissions(
+    request: Request,
     membership: UserMembership = Depends(get_current_membership),
 ) -> Dict[str, str]:
     """Resolve current membership permissions."""
-    return await rbac_service.get_effective_permissions(membership)
+    cached = getattr(request.state, "current_permissions", None)
+    if isinstance(cached, dict):
+        return cached
+    permissions = await rbac_service.get_effective_permissions(membership)
+    request.state.current_permissions = permissions
+    return permissions
 
 
 def require_permission(resource: str, action: str):

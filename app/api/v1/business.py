@@ -2,12 +2,18 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from beanie import PydanticObjectId
+from beanie.operators import In
 
-from app.api.dependencies import get_current_user, get_current_business, require_role
+from app.api.dependencies import (
+    get_current_user,
+    get_current_business,
+    get_current_membership,
+)
 from app.models.user import User, UserMembership
 from app.models.business import Business
 from app.schemas.business import BusinessCreate, BusinessUpdate, BusinessResponse
 from app.services.business import business_service
+from app.services.rbac import rbac_service
 
 router = APIRouter(prefix="/businesses", tags=["Businesses"])
 
@@ -49,6 +55,10 @@ async def create_business(
         max_devices=business.max_devices,
         business_type=business.business_type,
         custom_business_type=business.custom_business_type,
+        legacy_role="owner",
+        role_id=None,
+        role_name=None,
+        permissions={"*": "manage"},
     )
 
 
@@ -57,35 +67,59 @@ async def list_businesses(
     current_user: User = Depends(get_current_user),
 ):
     """List all businesses for current user."""
-    businesses = await business_service.list_user_businesses(str(current_user.id))
-    # Convert ObjectIds to strings for response
-    return [
-        BusinessResponse(
-            id=str(business.id),
-            name=business.name,
-            phone=business.phone,
-            owner_name=business.owner_name,
-            email=business.email,
-            address=business.address,
-            area=business.area,
-            city=business.city,
-            business_category=business.business_category,
-            is_active=business.is_active,
-            language_preference=business.language_preference,
-            max_devices=business.max_devices,
-            business_type=business.business_type,
-            custom_business_type=business.custom_business_type,
+    memberships = await UserMembership.find(
+        UserMembership.user_id == current_user.id,
+        UserMembership.is_active == True,
+    ).to_list()
+    if not memberships:
+        return []
+
+    business_ids = [membership.business_id for membership in memberships]
+    businesses = await Business.find(
+        In(Business.id, business_ids),
+        Business.is_active == True,
+    ).to_list()
+    business_map = {business.id: business for business in businesses}
+
+    responses: List[BusinessResponse] = []
+    for membership in memberships:
+        business = business_map.get(membership.business_id)
+        if not business:
+            continue
+        access_payload = await rbac_service.build_business_access_payload(membership)
+        responses.append(
+            BusinessResponse(
+                id=str(business.id),
+                name=business.name,
+                phone=business.phone,
+                owner_name=business.owner_name,
+                email=business.email,
+                address=business.address,
+                area=business.area,
+                city=business.city,
+                business_category=business.business_category,
+                is_active=business.is_active,
+                language_preference=business.language_preference,
+                max_devices=business.max_devices,
+                business_type=business.business_type,
+                custom_business_type=business.custom_business_type,
+                legacy_role=access_payload.get("legacy_role"),
+                role_id=access_payload.get("role_id"),
+                role_name=access_payload.get("role_name"),
+                permissions=access_payload.get("permissions"),
+            )
         )
-        for business in businesses
-    ]
+    return responses
 
 
 @router.get("/{business_id}", response_model=BusinessResponse)
 async def get_business(
     business_id: str,
     current_business: Business = Depends(get_current_business),
+    membership: UserMembership = Depends(get_current_membership),
 ):
     """Get business details."""
+    access_payload = await rbac_service.build_business_access_payload(membership)
     # Convert ObjectId to string for response
     return BusinessResponse(
         id=str(current_business.id),
@@ -102,6 +136,10 @@ async def get_business(
         max_devices=current_business.max_devices,
         business_type=current_business.business_type,
         custom_business_type=current_business.custom_business_type,
+        legacy_role=access_payload.get("legacy_role"),
+        role_id=access_payload.get("role_id"),
+        role_name=access_payload.get("role_name"),
+        permissions=access_payload.get("permissions"),
     )
 
 
@@ -110,8 +148,10 @@ async def update_business(
     business_id: str,
     data: BusinessUpdate,
     current_business: Business = Depends(get_current_business),
+    membership: UserMembership = Depends(get_current_membership),
 ):
     """Update business."""
+    access_payload = await rbac_service.build_business_access_payload(membership)
     business = await business_service.update_business(
         business_id=str(current_business.id),
         name=data.name,
@@ -140,6 +180,10 @@ async def update_business(
         max_devices=business.max_devices,
         business_type=business.business_type,
         custom_business_type=business.custom_business_type,
+        legacy_role=access_payload.get("legacy_role"),
+        role_id=access_payload.get("role_id"),
+        role_name=access_payload.get("role_name"),
+        permissions=access_payload.get("permissions"),
     )
 
 
